@@ -2,6 +2,7 @@
 //! stable source-backed results; none of them depend on Xilem or the renderer.
 
 mod ai;
+pub(crate) mod chat_media;
 mod commands;
 mod llm_json;
 mod pdf_ocr;
@@ -28,8 +29,8 @@ pub(crate) use ai::{
     chat_citation_marker_from_link,
 };
 pub use ai::{
-    ChatReadingContext, ChatResponse, ChatRole, ChatTurn, chat_with_book, translate_blocks,
-    translate_blocks_incremental,
+    ChatReadingContext, ChatResponse, ChatRole, ChatStreamEvent, ChatTurn, chat_with_book,
+    translate_blocks, translate_blocks_incremental,
 };
 pub use commands::{
     ChatCommand, ChatCommandResolution, ChatRequestKind, chat_command_suggestions,

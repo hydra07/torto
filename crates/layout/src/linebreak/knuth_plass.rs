@@ -121,6 +121,7 @@ pub struct ClusterItem {
 pub struct ParagraphOptions {
     pub line_width: f32,
     pub first_line_indent: f32,
+    pub continuation_indent: f32,
     pub em: f32,
     pub line_penalty: f32,
     pub minimum_adjustment_ratio: f32,
@@ -132,6 +133,7 @@ impl ParagraphOptions {
         Self {
             line_width,
             first_line_indent: 0.0,
+            continuation_indent: 0.0,
             em,
             line_penalty: 10.0,
             minimum_adjustment_ratio: -1.0,
@@ -284,6 +286,9 @@ fn paragraph_options_are_valid(options: ParagraphOptions) -> bool {
         && options.first_line_indent.is_finite()
         && options.first_line_indent >= 0.0
         && options.first_line_indent < options.line_width
+        && options.continuation_indent.is_finite()
+        && options.continuation_indent >= 0.0
+        && options.continuation_indent < options.line_width
         && options.em.is_finite()
         && options.em > 0.0
         && options.line_penalty.is_finite()
@@ -409,7 +414,7 @@ fn measure_cluster_line(
         - if start == 0 {
             options.first_line_indent
         } else {
-            0.0
+            options.continuation_indent
         };
     if target_width <= 0.0 {
         return ClusterLineFit::Infeasible;

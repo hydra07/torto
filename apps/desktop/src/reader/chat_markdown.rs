@@ -1426,7 +1426,9 @@ fn normalize_loose_strong_delimiters(source: &str) -> Cow<'_, str> {
         } else {
             let normalized = normalize_loose_strong_line(line);
             changed |= matches!(normalized, Cow::Owned(_));
-            output.push_str(normalized.as_ref());
+            let cjk = normalize_cjk_strong_boundaries(normalized.as_ref());
+            changed |= matches!(cjk, Cow::Owned(_));
+            output.push_str(cjk.as_ref());
         }
     }
     if changed {
@@ -1436,7 +1438,7 @@ fn normalize_loose_strong_delimiters(source: &str) -> Cow<'_, str> {
     }
 }
 
-fn normalize_loose_strong_line(line: &str) -> Cow<'_, str> {
+fn strong_delimiter_offsets(line: &str) -> Vec<usize> {
     let bytes = line.as_bytes();
     let mut delimiters = Vec::new();
     let mut code_ticks = None;
@@ -1468,6 +1470,51 @@ fn normalize_loose_strong_line(line: &str) -> Cow<'_, str> {
         index += 1;
     }
 
+    delimiters
+}
+
+// CommonMark treats punctuation next to a Han character differently from
+// punctuation next to whitespace. Encode only the outside Han boundary as a
+// character reference: the parser sees a punctuation boundary but emits the
+// exact original character, without adding visible or invisible whitespace.
+fn normalize_cjk_strong_boundaries(line: &str) -> Cow<'_, str> {
+    let is_han = |c: char| matches!(c as u32, 0x3400..=0x4dbf | 0x4e00..=0x9fff | 0xf900..=0xfaff | 0x20000..=0x323af);
+    let punctuation = |c: char| !c.is_alphanumeric() && !c.is_whitespace();
+    let mut positions = std::collections::BTreeMap::new();
+    for pair in strong_delimiter_offsets(line).chunks_exact(2) {
+        let (open, close) = (pair[0], pair[1]);
+        let inner = &line[open + 2..close];
+        if inner.chars().next().is_some_and(punctuation) {
+            if let Some((index, c)) = line[..open]
+                .char_indices()
+                .next_back()
+                .filter(|(_, c)| is_han(*c))
+            {
+                positions.insert(index, c);
+            }
+        }
+        if inner.chars().next_back().is_some_and(punctuation) {
+            if let Some(c) = line[close + 2..].chars().next().filter(|c| is_han(*c)) {
+                positions.insert(close + 2, c);
+            }
+        }
+    }
+    if positions.is_empty() {
+        return Cow::Borrowed(line);
+    }
+    let mut output = String::with_capacity(line.len());
+    let mut cursor = 0;
+    for (index, c) in positions {
+        output.push_str(&line[cursor..index]);
+        output.push_str(&format!("&#x{:x};", c as u32));
+        cursor = index + c.len_utf8();
+    }
+    output.push_str(&line[cursor..]);
+    Cow::Owned(output)
+}
+
+fn normalize_loose_strong_line(line: &str) -> Cow<'_, str> {
+    let delimiters = strong_delimiter_offsets(line);
     let mut replacements = Vec::new();
     for pair in delimiters.chunks_exact(2) {
         let open = pair[0];
@@ -1799,7 +1846,7 @@ fn normalize_legacy_internal_citations(source: &str) -> Cow<'_, str> {
 
 fn normalize_openai_citation_markers(source: &str) -> Cow<'_, str> {
     const OPEN: &str = "【";
-    const CLOSE: &str = "†source】";
+    const CLOSE: &str = "】";
     let mut search_start = 0;
     let mut copy_start = 0;
     let mut output = None::<String>;
@@ -1811,11 +1858,22 @@ fn normalize_openai_citation_markers(source: &str) -> Cow<'_, str> {
             break;
         };
         let close = content_start + relative_close;
-        let body = source[content_start..close].trim();
+        // Never search past this marker's closing bracket for a valid suffix:
+        // malformed model output must not consume prose or a later citation.
+        let next = close + CLOSE.len();
+        let marker = &source[content_start..close];
+        if let Some(nested_open) = marker.rfind(OPEN) {
+            search_start = content_start + nested_open;
+            continue;
+        }
+        let Some(body) = marker.strip_suffix("†source") else {
+            search_start = next;
+            continue;
+        };
+        let body = body.trim();
         let locator = body
             .strip_prefix(CHAT_CITATION_PREFIX)
             .map_or_else(|| format!("{CHAT_CITATION_PREFIX}{body}"), str::to_owned);
-        let next = close + CLOSE.len();
         if !is_internal_citation_locator(&locator) {
             search_start = next;
             continue;
@@ -1927,7 +1985,13 @@ fn is_internal_citation_locator(locator: &str) -> bool {
         .map_or((remainder, None), |(section, node)| (section, Some(node)));
     !section.is_empty()
         && section.bytes().all(|byte| byte.is_ascii_digit())
-        && node.is_none_or(|node| !node.is_empty())
+        && node.is_none_or(|node| {
+            !node.is_empty()
+                && !node.chars().any(|c| {
+                    c.is_whitespace()
+                        || matches!(c, '【' | '】' | '†' | '<' | '>' | '[' | ']' | '(' | ')')
+                })
+        })
 }
 
 fn stable_hash<T: Hash + ?Sized>(value: &T) -> u64 {
@@ -2159,6 +2223,35 @@ flowchart LR
     }
 
     #[test]
+    fn chinese_parentheses_do_not_reverse_strong_spans() {
+        let source = "这段文字对比了**连续信号（模拟信号）**与**离散信号（数字信号）**在传输过程中的本质区别，解释了为什么现代社会要经历从模拟信号向数字信号的革命";
+        let normalized = normalize_loose_strong_delimiters(source);
+        let mut strong = Vec::new();
+        let mut inside = false;
+        let mut plain = String::new();
+        for event in Parser::new_ext(&normalized, markdown_options()) {
+            match event {
+                Event::Start(Tag::Strong) => {
+                    inside = true;
+                    strong.push(String::new());
+                }
+                Event::End(pulldown_cmark::TagEnd::Strong) => inside = false,
+                Event::Text(text) => {
+                    plain.push_str(&text);
+                    if inside {
+                        strong.last_mut().unwrap().push_str(&text);
+                    }
+                }
+                _ => {}
+            }
+        }
+        assert_eq!(strong, ["连续信号（模拟信号）", "离散信号（数字信号）"]);
+        assert_eq!(plain, source.replace("**", ""));
+        let code = "`**连续信号（模拟信号）**与`\n```text\n**连续信号（模拟信号）**与\n```";
+        assert_eq!(normalize_loose_strong_delimiters(code), code);
+    }
+
+    #[test]
     fn normalizes_model_authored_whitespace_inside_strong_delimiters() {
         let source = "如** “可瞥见阅读”（glanceable reading）**，可快速浏览。";
         let normalized = normalize_loose_strong_delimiters(source);
@@ -2242,6 +2335,31 @@ flowchart LR
                 "First[{CITATION_ICON}](<link://j/11/n17>)[{CITATION_ICON}](<link://j/11/n44>)"
             )
         );
+    }
+
+    #[test]
+    fn malformed_citation_does_not_consume_the_next_valid_marker() {
+        let source = "否则根本无法实用【11/n3†source保】。\n\n2. **数字信号（Discrete Signaling）的优势**：\n   - 使用**中继器（repeaters）**【11/n3†source】。\n   - **连续信号（模拟信号）**与数字信号【11/n3†source】。";
+        let strong = normalize_loose_strong_delimiters(source);
+        let math = normalize_math_delimiters(&strong);
+        let iconized = citation_icon_markdown(&math);
+        let mut links = Vec::new();
+        let mut plain = String::new();
+        let mut strong_count = 0;
+        for event in Parser::new_ext(&iconized, markdown_options()) {
+            match event {
+                Event::Start(Tag::Link { dest_url, .. }) => links.push(dest_url.to_string()),
+                Event::Start(Tag::Strong) => strong_count += 1,
+                Event::Text(text) => plain.push_str(&text),
+                _ => {}
+            }
+        }
+        assert_eq!(links, ["link://j/11/n3", "link://j/11/n3"]);
+        assert_eq!(strong_count, 3);
+        assert!(plain.contains("否则根本无法实用【11/n3†source保】"));
+        assert!(plain.contains("数字信号（Discrete Signaling）的优势"));
+        assert!(!plain.contains("[source]("));
+        assert!(!plain.contains("link://"));
     }
 
     #[test]

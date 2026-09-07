@@ -210,8 +210,47 @@ fn paragraph_atoms_for_content(content: &[Inline], language_hint: &str) -> Vec<P
 fn text_kind_is_structurable(kind: TextBlockKind) -> bool {
     matches!(
         kind,
-        TextBlockKind::Paragraph | TextBlockKind::Blockquote | TextBlockKind::Caption
+        TextBlockKind::Paragraph
+            | TextBlockKind::Blockquote
+            | TextBlockKind::Caption
+            | TextBlockKind::ListItem { .. }
     )
+}
+
+#[cfg(test)]
+mod list_structure_tests {
+    use super::*;
+    #[test]
+    fn sentence_splitting_preserves_list_number_depth_and_inline_content() {
+        let kind = TextBlockKind::ListItem {
+            ordered: true,
+            ordinal: 3,
+            depth: 2,
+            marker_visible: true,
+        };
+        assert!(text_kind_is_structurable(kind));
+        let mut block = TextBlock {
+            kind,
+            content: vec![Inline::Text(rebook_publication::TextRun {
+                text: "First sentence. Second sentence.".into(),
+                style: rebook_publication::TextStyle::default(),
+                link: None,
+            })],
+            style: rebook_publication::BlockStyle::default(),
+            source: None,
+        };
+        apply_sentence_structure(&mut block, "en");
+        assert_eq!(block.kind, kind);
+        assert_eq!(
+            block
+                .content
+                .iter()
+                .filter(|inline| matches!(inline, Inline::Break))
+                .count(),
+            2
+        );
+        assert_eq!(block.style.subparagraph_gap_em, Some(0.3));
+    }
 }
 
 fn text_structure_is_active(

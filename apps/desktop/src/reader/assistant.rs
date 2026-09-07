@@ -146,6 +146,7 @@ impl DesktopReader {
                     payload.question,
                     payload.current,
                     payload.response_language,
+                    payload.cancel,
                     move |content| {
                         let _ = stream_proxy.send_event(UserEvent::ReaderChatStream(
                             ChatStreamMessage {
@@ -906,11 +907,17 @@ impl DesktopReader {
                 insert_text,
             } => {
                 self.chat.messages.push(ChatTurn {
+                    thinking_seconds: None,
+                    progress: Vec::new(),
+                    images: Vec::new(),
                     role: ChatRole::User,
                     content: raw.clone(),
                     display_content: Some(raw),
                 });
                 self.chat.messages.push(ChatTurn {
+                    thinking_seconds: None,
+                    progress: Vec::new(),
+                    images: Vec::new(),
                     role: ChatRole::Assistant,
                     content: message,
                     display_content: None,
@@ -1233,8 +1240,74 @@ impl DesktopReader {
             self.open_assistant_panel(AssistantPanel::Chat);
             return;
         }
+        let mut selection = self.selection.as_ref().map(|selection| ChatSelection {
+            images: Vec::new(),
+            text: selection.text.clone(),
+            ranges: selection.ranges.clone(),
+        });
+        if self.is_focus_mode()
+            && (selection.is_none() || self.focus_selection_anchor.is_none())
+            && let Some(unit) = self.focus_units.get(self.focus_unit_index)
+        {
+            selection = Some(ChatSelection {
+                images: Vec::new(),
+                text: unit.text.clone(),
+                ranges: unit.paint_ranges.clone(),
+            });
+        }
+        if kind == ChatRequestKind::Normal
+            && let Some(selection) = &mut selection
+        {
+            match crate::plugins::chat_media::capture_images(
+                self.source.as_ref(),
+                &selection.ranges,
+            ) {
+                Ok(mut images) => {
+                    for image in &mut images {
+                        if let Some(cached) = self
+                            .chat
+                            .messages
+                            .iter()
+                            .flat_map(|turn| &turn.images)
+                            .find(|cached| *cached == image)
+                        {
+                            *image = cached.clone();
+                        }
+                    }
+                    selection.images = images;
+                }
+                Err(error) => {
+                    self.chat.error = Some(error);
+                    self.chat.input = display_content.clone().unwrap_or_else(|| question.clone());
+                    return;
+                }
+            }
+        }
+        let images = selection
+            .as_ref()
+            .map(|s| s.images.clone())
+            .unwrap_or_default();
+        let display_content = if images.is_empty() {
+            display_content
+        } else {
+            display_content.or_else(|| Some(question.clone()))
+        };
+        let question = if !images.is_empty() {
+            format!(
+                "{question}\n\n以下图片来自本次选中的书籍内容，按原文顺序附上。请结合图片和以下文字回答：\n{}",
+                selection
+                    .as_ref()
+                    .map(|s| s.text.chars().take(20_000).collect::<String>())
+                    .unwrap_or_default()
+            )
+        } else {
+            question
+        };
         let history = self.chat.messages.clone();
         self.chat.messages.push(ChatTurn {
+            thinking_seconds: None,
+            progress: Vec::new(),
+            images,
             role: ChatRole::User,
             content: question.clone(),
             display_content,
@@ -1244,17 +1317,16 @@ impl DesktopReader {
         let question_chars = question.chars().count();
         let question_lines = question.lines().count();
         let current = self.chat_reading_context();
+        let cancel = Arc::new(tokio::sync::Notify::new());
         let id = self.chat.task.begin(ChatTask {
+            cancel: Arc::clone(&cancel),
             session_id: self.chat.session_id,
             source: Arc::clone(&self.source),
             format: self.format,
             kind,
             rewrite_source: Arc::clone(&self.rewrite_source),
             book_id: self.book_id.clone(),
-            selection: self.selection.as_ref().map(|selection| ChatSelection {
-                text: selection.text.clone(),
-                ranges: selection.ranges.clone(),
-            }),
+            selection,
             annotations: self.highlights.clone(),
             settings: self.plugin_settings.clone(),
             history,
@@ -1263,6 +1335,11 @@ impl DesktopReader {
             response_language: self.language.translation_target().into(),
         });
         self.chat.streaming = Some(ChatStreamingState {
+            thinking_seconds: None,
+            started: Instant::now(),
+            progress: Vec::new(),
+            reasoning_index: None,
+            tools: HashMap::new(),
             task_id: id,
             content: String::new(),
         });
@@ -1357,8 +1434,16 @@ impl DesktopReader {
             );
             return;
         }
-        chat.streaming = None;
+        let stream = chat.streaming.take();
+        let progress = stream
+            .as_ref()
+            .map(|s| s.progress.clone())
+            .unwrap_or_default();
         let session_id = message.session_id;
+        let thinking_seconds = stream.as_ref().map(|s| {
+            s.thinking_seconds
+                .unwrap_or_else(|| s.started.elapsed().as_secs())
+        });
         match message.result {
             Ok(response) => {
                 log_completed_chat(message.id, &response);
@@ -1415,6 +1500,9 @@ impl DesktopReader {
                 }
                 if let Some(chat) = self.chat_state_mut_by_session(session_id) {
                     chat.messages.push(ChatTurn {
+                        thinking_seconds,
+                        progress,
+                        images: Vec::new(),
                         role: ChatRole::Assistant,
                         content: response.content,
                         display_content: None,
@@ -1434,6 +1522,19 @@ impl DesktopReader {
                     ],
                 );
                 if let Some(chat) = self.chat_state_mut_by_session(session_id) {
+                    if let Some(mut stream) = stream {
+                        stream.progress.push(error.clone());
+                        if !stream.progress.is_empty() || !stream.content.is_empty() {
+                            chat.messages.push(ChatTurn {
+                                thinking_seconds,
+                                progress: stream.progress,
+                                content: stream.content,
+                                images: Vec::new(),
+                                role: ChatRole::Assistant,
+                                display_content: None,
+                            });
+                        }
+                    }
                     chat.error = Some(error);
                 }
             }
@@ -1450,13 +1551,31 @@ impl DesktopReader {
         if streaming.task_id != message.id {
             return;
         }
-        let first_content = streaming.content.is_empty() && !message.content.is_empty();
-        streaming.content = message.content;
-        if first_content {
-            crate::diagnostics::log(
-                "chat.stream.first",
-                &[crate::diagnostics::Field::U64("id", message.id)],
-            );
+        match message.content {
+            crate::plugins::ChatStreamEvent::Content(content) => {
+                if !content.is_empty() && streaming.thinking_seconds.is_none() {
+                    streaming.thinking_seconds = Some(streaming.started.elapsed().as_secs());
+                }
+                streaming.content = content;
+            }
+            crate::plugins::ChatStreamEvent::Reasoning(text) => {
+                let index = *streaming.reasoning_index.get_or_insert_with(|| {
+                    streaming.progress.push(String::new());
+                    streaming.progress.len() - 1
+                });
+                if streaming.progress[index].len() < 100_000 {
+                    streaming.progress[index].push_str(&text);
+                }
+            }
+            crate::plugins::ChatStreamEvent::Tool { id, text, done } => {
+                streaming.reasoning_index = None;
+                let index = *streaming.tools.entry(id).or_insert_with(|| {
+                    streaming.progress.push(String::new());
+                    streaming.progress.len() - 1
+                });
+                streaming.progress[index] =
+                    format!("{} {}", text.trim_end(), if done { "✓" } else { "…" });
+            }
         }
     }
 

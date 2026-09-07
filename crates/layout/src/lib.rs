@@ -1855,12 +1855,18 @@ impl LayoutEngine {
             .map(|(offset, glyph)| (*offset, glyph.width))
             .collect::<HashMap<_, _>>();
         let mut selected_hyphens = Vec::new();
+        let continuation_indent = if matches!(block.kind, TextBlockKind::ListItem { .. }) {
+            self.measure_list_marker_width(&text[..source_text_start], &font_stack, typography)
+        } else {
+            0.0
+        };
         let mut optimized = should_optimize
-            && linebreak::parley::plan_optimized(
+            && linebreak::parley::plan_optimized_with_hanging_indent(
                 &mut layout,
                 &text,
                 available_width,
                 first_line_indent,
+                continuation_indent,
                 typography.font_size,
                 &hyphen_widths,
             )
@@ -2428,10 +2434,10 @@ fn resolve_text_block<'a>(
                 // Unified typesetting starts from a neutral decoration layer.
                 // Semantic/application decorations can opt back in explicitly.
                 run.style.underline = false;
-                run.style.size_scale = if run.style.baseline == TextBaseline::Normal {
-                    scale
-                } else {
-                    scale * 0.75
+                run.style.size_scale = match run.style.baseline {
+                    TextBaseline::Normal => scale,
+                    TextBaseline::Superscript => scale * 0.70,
+                    TextBaseline::Subscript => scale * 0.75,
                 };
                 if block.kind.is_heading()
                     || matches!(block.kind, TextBlockKind::DefinitionTerm { .. })
@@ -5919,6 +5925,32 @@ mod tests {
         );
         let continuation_x = prepared.layout.get(1).unwrap().metrics().offset;
         assert!((continuation_x - marker_width).abs() < 0.01);
+    }
+
+    #[test]
+    fn optimized_list_text_stays_inside_the_shared_right_edge() {
+        let block = TextBlock {
+            kind: TextBlockKind::ListItem { ordered:true, ordinal:1, depth:0, marker_visible:true },
+            content: vec![Inline::Text(TextRun {
+                text: "In continuous signaling you often have to amplify the signal to compensate for natural losses along the way. Any error made at one stage is amplified by the next stage. ".repeat(5),
+                style: TextStyle::default(), link:None,
+            })],
+            style: BlockStyle { align:TextAlignment::Justify, ..BlockStyle::default() }, source:None,
+        };
+        let style = ReaderStyle {
+            typesetting: ReaderTypesetting::unified(),
+            ..ReaderStyle::default()
+        };
+        let prepared = LayoutEngine::new().shape_text_with_min_width(&block, &style, 480.0, 40.0);
+        assert!(prepared.layout.len() > 2);
+        for line in prepared.layout.lines().take(prepared.layout.len() - 1) {
+            let end = linebreak::parley::positioned_line_content_end(line);
+            assert!(
+                (end - prepared.available_width).abs() < 1.0,
+                "list text right edge {end} differs from available width {}",
+                prepared.available_width
+            );
+        }
     }
 
     #[test]

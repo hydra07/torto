@@ -2,7 +2,7 @@
 use std::collections::{BTreeMap, HashMap};
 use std::sync::{
     Arc, OnceLock,
-    atomic::{AtomicBool, AtomicU64, Ordering},
+    atomic::{AtomicBool, Ordering},
     mpsc,
 };
 use std::time::{Duration, Instant};
@@ -122,14 +122,11 @@ fn events(db: &Connection) -> SyncResult<Vec<Event>> {
 
 enum Write {
     Event(Event),
-    Config(bool, u64),
     Flush(mpsc::Sender<()>),
 }
 struct Service {
     sender: mpsc::Sender<Write>,
     device: String,
-    enabled: AtomicBool,
-    idle: AtomicU64,
     failed: Arc<AtomicBool>,
 }
 static SERVICE: OnceLock<Service> = OnceLock::new();
@@ -148,37 +145,14 @@ fn service() -> &'static Service {
                 Err(error) => {
                     tracing::error!(%error,"statistics database unavailable");
                     worker_failed.store(true, Ordering::Relaxed);
-                    let _ = ready_tx.send((true, 300));
+                    let _ = ready_tx.send(());
                     return;
                 }
             };
-            let enabled = db
-                .query_row("SELECT value FROM config WHERE key='enabled'", [], |r| {
-                    r.get::<_, i64>(0)
-                })
-                .unwrap_or(1)
-                != 0;
-            let idle = db
-                .query_row("SELECT value FROM config WHERE key='idle'", [], |r| {
-                    r.get::<_, i64>(0)
-                })
-                .unwrap_or(300)
-                .clamp(120, 600) as u64;
-            let _ = ready_tx.send((enabled, idle));
+            let _ = ready_tx.send(());
             for write in receiver {
                 let result = match write {
                     Write::Event(event) => insert(&mut db, &[event]),
-                    Write::Config(enabled, idle) => (|| {
-                        db.execute(
-                            "INSERT OR REPLACE INTO config VALUES ('enabled',?1)",
-                            [i64::from(enabled)],
-                        )?;
-                        db.execute(
-                            "INSERT OR REPLACE INTO config VALUES ('idle',?1)",
-                            [idle as i64],
-                        )?;
-                        Ok(())
-                    })(),
                     Write::Flush(done) => {
                         let _ = done.send(());
                         Ok(())
@@ -190,12 +164,10 @@ fn service() -> &'static Service {
                 }
             }
         });
-        let (enabled, idle) = ready_rx.recv().unwrap_or((true, 300));
+        let _ = ready_rx.recv();
         Service {
             sender,
             device,
-            enabled: AtomicBool::new(enabled),
-            idle: AtomicU64::new(idle),
             failed,
         }
     })
@@ -255,16 +227,6 @@ impl Tracker {
             },
         );
     }
-    pub(crate) fn toggle_timer(&mut self) {
-        self.save();
-        let enabled = !service().enabled.load(Ordering::Relaxed);
-        service().enabled.store(enabled, Ordering::Relaxed);
-        self.activity = Instant::now();
-        let _ = service().sender.send(Write::Config(
-            enabled,
-            service().idle.load(Ordering::Relaxed),
-        ));
-    }
     pub(crate) fn new(book: &str) -> Self {
         let now = Instant::now();
         Self {
@@ -284,13 +246,9 @@ impl Tracker {
     pub(crate) fn tick(&mut self, eligible: bool, activity: bool, progress: f64) -> bool {
         let now = Instant::now();
         let elapsed = now.saturating_duration_since(self.last);
-        let idle = Duration::from_secs(service().idle.load(Ordering::Relaxed));
+        let idle = Duration::from_secs(300);
         // A long frame gap may be suspension/lock; never charge that gap.
-        if self.eligible
-            && eligible
-            && elapsed <= Duration::from_secs(5)
-            && service().enabled.load(Ordering::Relaxed)
-        {
+        if self.eligible && eligible && elapsed <= Duration::from_secs(5) {
             let remaining = idle.saturating_sub(self.last.saturating_duration_since(self.activity));
             let accumulated = elapsed.min(remaining) + self.fraction;
             let amount = accumulated.as_millis() as u64;
@@ -305,9 +263,7 @@ impl Tracker {
         if activity {
             self.activity = now;
         }
-        let active = eligible
-            && now.saturating_duration_since(self.activity) < idle
-            && service().enabled.load(Ordering::Relaxed);
+        let active = eligible && now.saturating_duration_since(self.activity) < idle;
         self.progress = progress.clamp(0.0, 1.0);
         if self.pending_ms >= 15_000 || !active || elapsed > Duration::from_secs(5) {
             self.save();
@@ -487,7 +443,6 @@ fn date(ms: Option<u64>) -> String {
 
 #[derive(Default)]
 pub(crate) struct Page {
-    settings_open: bool,
     status_draft: Option<Status>,
     detail_key: Option<String>,
     clear_confirm: bool,
@@ -617,8 +572,25 @@ impl Page {
             Err(error) => self.error = Some(error.to_string()),
         }
     }
-    pub(crate) fn ui(&mut self, root: &mut egui::Ui, language: AppLanguage, blocked: bool) {
+    pub(crate) fn ui(
+        &mut self,
+        root: &mut egui::Ui,
+        language: AppLanguage,
+        blocked: bool,
+        return_to_shelf: egui::KeyboardShortcut,
+    ) {
         use crate::ui::{Icon, dialog_action_button, icon_button, palette};
+        if !blocked
+            && !self.clear_confirm
+            && root
+                .ctx()
+                .input_mut(|input| input.consume_shortcut(&return_to_shelf))
+        {
+            self.selected = None;
+            self.open = false;
+            root.ctx().request_repaint();
+            return;
+        }
         if !blocked
             && root
                 .ctx()
@@ -634,43 +606,52 @@ impl Page {
             .frame(
                 egui::Frame::new()
                     .fill(palette().background)
-                    .inner_margin(egui::Margin::symmetric(32, 24)),
+                    .inner_margin(egui::Margin {
+                        left: 36,
+                        right: 16,
+                        top: 28,
+                        bottom: 28,
+                    }),
             )
             .show(root, |ui| {
                 ui.add_enabled_ui(!blocked, |ui| {
-                    ui.horizontal(|ui| {
-                        let back = if self.selected.is_some() {
-                            language.text("返回概览", "Back to overview")
-                        } else {
-                            language.text("返回书架", "Back to library")
-                        };
-                        if dialog_action_button(ui, back, false).clicked() {
-                            if self.selected.take().is_none() {
-                                self.open = false;
+                    ui.allocate_ui_with_layout(
+                        egui::vec2(ui.available_width(), 44.0),
+                        egui::Layout::left_to_right(egui::Align::Center),
+                        |ui| {
+                            if self.selected.is_some()
+                                && dialog_action_button(
+                                    ui,
+                                    language.text("返回概览", "Back to overview"),
+                                    false,
+                                )
+                                .clicked()
+                            {
+                                self.selected = None;
+                                self.clear_confirm = false;
                             }
-                            self.clear_confirm = false;
-                        }
-                        ui.separator();
-                        ui.label(
-                            egui::RichText::new(language.text("阅读统计", "Reading statistics"))
+                            ui.label(
+                                egui::RichText::new(
+                                    language.text("阅读统计", "Reading statistics"),
+                                )
                                 .size(22.0)
                                 .strong(),
-                        );
-                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            if icon_button(ui, Icon::Settings)
-                                .on_hover_text(language.text("统计设置", "Statistics settings"))
-                                .clicked()
-                            {
-                                self.settings_open = !self.settings_open;
-                            }
-                            if dialog_action_button(ui, language.text("刷新", "Refresh"), false)
-                                .clicked()
-                            {
-                                flush();
-                                self.reload();
-                            }
-                        });
-                    });
+                            );
+                            ui.with_layout(
+                                egui::Layout::right_to_left(egui::Align::Center),
+                                |ui| {
+                                    if icon_button(ui, Icon::Library)
+                                        .on_hover_text(language.text("返回书架", "Back to library"))
+                                        .clicked()
+                                    {
+                                        self.selected = None;
+                                        self.clear_confirm = false;
+                                        self.open = false;
+                                    }
+                                },
+                            );
+                        },
+                    );
                     ui.add_space(20.0);
                     if let Some(error) = &self.error {
                         ui.colored_label(palette().error_text, error);
@@ -683,50 +664,6 @@ impl Page {
                                 "Some statistics could not be saved. Check disk space.",
                             ),
                         );
-                    }
-                    if self.settings_open {
-                        card().show(ui, |ui| {
-                            ui.set_width((ui.available_width()).min(1050.0));
-                            ui.label(
-                                egui::RichText::new(
-                                    language.text("统计设置", "Statistics settings"),
-                                )
-                                .strong(),
-                            );
-                            let mut enabled = service().enabled.load(Ordering::Relaxed);
-                            let mut idle = service().idle.load(Ordering::Relaxed);
-                            let mut changed = ui
-                                .checkbox(
-                                    &mut enabled,
-                                    language.text("记录阅读时间", "Track reading time"),
-                                )
-                                .changed();
-                            ui.horizontal_wrapped(|ui| {
-                                ui.label(language.text("无操作后暂停", "Pause after inactivity"));
-                                for seconds in [120, 300, 600] {
-                                    if choice(ui, &format!("{} min", seconds / 60), idle == seconds)
-                                        .clicked()
-                                    {
-                                        idle = seconds;
-                                        changed = true;
-                                    }
-                                }
-                            });
-                            if changed {
-                                service().enabled.store(enabled, Ordering::Relaxed);
-                                service().idle.store(idle, Ordering::Relaxed);
-                                let _ = service().sender.send(Write::Config(enabled, idle));
-                            }
-                            ui.label(
-                                egui::RichText::new(language.text(
-                                    "仅记录启用后的阅读时间；历史时长无法补算。",
-                                    "Reading time before tracking was enabled is unavailable.",
-                                ))
-                                .small()
-                                .color(palette().muted),
-                            );
-                        });
-                        ui.add_space(16.0);
                     }
                     egui::ScrollArea::vertical()
                         .id_salt(("statistics-page", self.selected.clone()))
@@ -768,19 +705,26 @@ impl Page {
             }
         });
         if self.custom {
-            ui.horizontal_wrapped(|ui| {
-                ui.label(language.text("从", "From"));
-                ui.add(
-                    egui::TextEdit::singleline(&mut self.custom_start)
-                        .desired_width(110.0)
-                        .hint_text("YYYY-MM-DD"),
-                );
-                ui.label(language.text("至", "To"));
-                ui.add(
-                    egui::TextEdit::singleline(&mut self.custom_end)
-                        .desired_width(110.0)
-                        .hint_text("YYYY-MM-DD"),
-                );
+            ui.scope(|ui| {
+                // Reserve the input's full height before laying out the first
+                // label; later widgets cannot reposition an already painted label.
+                let font = egui::TextStyle::Body.resolve(ui.style());
+                let row_height = ui.fonts_mut(|fonts| fonts.row_height(&font)) + 4.0;
+                ui.spacing_mut().interact_size.y = ui.spacing().interact_size.y.max(row_height);
+                ui.horizontal_wrapped(|ui| {
+                    ui.label(language.text("从", "From"));
+                    ui.add(
+                        egui::TextEdit::singleline(&mut self.custom_start)
+                            .desired_width(110.0)
+                            .hint_text("YYYY-MM-DD"),
+                    );
+                    ui.label(language.text("至", "To"));
+                    ui.add(
+                        egui::TextEdit::singleline(&mut self.custom_end)
+                            .desired_width(110.0)
+                            .hint_text("YYYY-MM-DD"),
+                    );
+                });
             });
         }
         let today = Local::now().date_naive();

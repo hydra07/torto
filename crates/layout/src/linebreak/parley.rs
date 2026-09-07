@@ -141,11 +141,32 @@ pub struct MeasuredCluster {
 
 /// Reads exact shaped-cluster metrics, maps ICU4X UAX #14 boundaries onto
 /// them, and computes both line breaks and cluster spacing for a paragraph.
+#[cfg(test)]
 pub(crate) fn plan_optimized(
     layout: &mut Layout<TextBrush>,
     text: &str,
     column_width: f32,
     first_line_indent: f32,
+    default_em: f32,
+    hyphen_breaks: &HashMap<usize, f32>,
+) -> Option<ParagraphPlan> {
+    plan_optimized_with_hanging_indent(
+        layout,
+        text,
+        column_width,
+        first_line_indent,
+        0.0,
+        default_em,
+        hyphen_breaks,
+    )
+}
+
+pub(crate) fn plan_optimized_with_hanging_indent(
+    layout: &mut Layout<TextBrush>,
+    text: &str,
+    column_width: f32,
+    first_line_indent: f32,
+    continuation_indent: f32,
     default_em: f32,
     hyphen_breaks: &HashMap<usize, f32>,
 ) -> Option<ParagraphPlan> {
@@ -197,6 +218,7 @@ pub(crate) fn plan_optimized(
         layout.inline_boxes(),
         column_width,
         first_line_indent,
+        continuation_indent,
         default_em,
         hyphen_breaks,
     )
@@ -218,6 +240,7 @@ pub fn plan_measured_text(
         &[],
         column_width,
         first_line_indent,
+        0.0,
         default_em,
         &HashMap::new(),
     )
@@ -230,6 +253,7 @@ fn plan_measured_content(
     inline_boxes: &[InlineBox],
     column_width: f32,
     first_line_indent: f32,
+    continuation_indent: f32,
     default_em: f32,
     hyphen_breaks: &HashMap<usize, f32>,
 ) -> Option<ParagraphPlan> {
@@ -327,6 +351,7 @@ fn plan_measured_content(
     let cluster_total = u32::try_from(clusters.len()).ok()?;
     let mut options = ParagraphOptions::new(column_width, default_em);
     options.first_line_indent = first_line_indent.max(0.0);
+    options.continuation_indent = continuation_indent.max(0.0);
     let optimized = knuth_plass::optimize_clusters(&items, options)?;
     if optimized
         .lines

@@ -5,8 +5,8 @@ opens Reading details, where its status and completion date can be edited.
 
 ## Counting rules
 
-- The reader counts foreground reading, with a configurable 2/5/10 minute idle
-  limit (default 5). Keyboard, click and scroll events renew activity; pointer
+- The reader automatically counts foreground reading, with a fixed five-minute idle
+  limit. Keyboard, click and scroll events renew activity; pointer
   motion alone does not. Settings/modal interactions and typing in the assistant
   pause counting. A frame gap over five seconds is not charged (suspension).
 - Time is checkpointed every fifteen seconds on a dedicated database writer.
@@ -52,4 +52,6 @@ user enables/runs the existing cloud sync.
 Foreground/idle time estimates engagement, not eye attention. Historical start
 dates before this feature are unknown. Page counts, speed estimates, reading
 goals and explicit rereading cycles are not part of this version. Overview and
-book detail aggregate on entry/refresh rather than querying on each frame.
+book detail aggregate on entry rather than querying on each frame. The configured
+Return to library shortcut also works from statistics; there is no manual refresh
+button or tracking settings panel.

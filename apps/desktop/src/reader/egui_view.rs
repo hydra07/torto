@@ -198,8 +198,13 @@ const fn should_hide_reader_cursor(
     hide_cursor_in_focus_mode: bool,
     interaction_blocked: bool,
     floating_sidebar_visible: bool,
+    assistant_visible: bool,
 ) -> bool {
-    is_focus_mode && hide_cursor_in_focus_mode && !interaction_blocked && !floating_sidebar_visible
+    is_focus_mode
+        && hide_cursor_in_focus_mode
+        && !interaction_blocked
+        && !floating_sidebar_visible
+        && !assistant_visible
 }
 
 const fn reader_menu_close_requested(overlay: ReaderOverlay, escape_pressed: bool) -> bool {
@@ -612,7 +617,7 @@ impl DesktopReader {
     ) -> ReaderFramePlan {
         let ctx = root_ui.ctx().clone();
         let now = Instant::now();
-        let statistics_active = self.statistics.tick(
+        self.statistics.tick(
             ctx.input(|i| i.focused)
                 && !interaction_blocked
                 && self.ui.overlay != ReaderOverlay::Menu
@@ -634,28 +639,7 @@ impl DesktopReader {
         egui::Area::new("reading-statistics-status".into())
             .anchor(egui::Align2::RIGHT_BOTTOM, [-10.0, -4.0])
             .show(&ctx, |ui| {
-                let label = if statistics_active {
-                    self.language.text("阅读计时中", "Reading timer active")
-                } else {
-                    self.language.text("阅读计时已暂停", "Reading timer paused")
-                };
                 ui.add_enabled_ui(!interaction_blocked, |ui| {
-                    if ui
-                        .add(
-                            egui::Label::new(
-                                egui::RichText::new(label).size(10.0).color(palette().muted),
-                            )
-                            .sense(egui::Sense::click()),
-                        )
-                        .on_hover_text(self.language.text(
-                            "点击暂停或恢复阅读计时",
-                            "Click to pause or resume reading time",
-                        ))
-                        .on_hover_cursor(egui::CursorIcon::PointingHand)
-                        .clicked()
-                    {
-                        self.statistics.toggle_timer();
-                    }
                     if self.snapshot.total_progression >= 0.999
                         && ui
                             .small_button(self.language.text("标记为已读完", "Mark as finished"))
@@ -766,6 +750,7 @@ impl DesktopReader {
             ),
             interaction_blocked,
             floating_sidebar_visible,
+            self.ui.assistant_panel.is_some(),
         ) {
             ctx.set_cursor_icon(egui::CursorIcon::None);
         }
@@ -1081,6 +1066,15 @@ impl DesktopReader {
     }
 
     fn keyboard_shortcuts(&mut self, ctx: &egui::Context, interaction_blocked: bool) {
+        // The image preview is above the chat, TOC and reader menus. Handle its
+        // dismissal before any underlying panel can consume Escape.
+        if self.image_preview.is_some() {
+            if ctx.input_mut(|input| input.consume_key(egui::Modifiers::NONE, egui::Key::Escape)) {
+                self.image_preview = None;
+                ctx.request_repaint();
+            }
+            return;
+        }
         let focus_footnote_requested =
             self.focus_footnote_shortcut_requested(ctx, interaction_blocked);
         let escape_pressed = self.ui.overlay == ReaderOverlay::Menu
@@ -2155,7 +2149,12 @@ impl DesktopReader {
         let (content_height, frame_margin) = if has_conversation {
             (
                 (viewport.height() * 0.58).clamp(280.0, 520.0),
-                egui::Margin::same(12),
+                egui::Margin {
+                    left: 12,
+                    right: 12,
+                    top: 12,
+                    bottom: 6,
+                },
             )
         } else {
             (ASSISTANT_INPUT_HEIGHT, egui::Margin::symmetric(10, 6))
@@ -2553,15 +2552,15 @@ impl DesktopReader {
         if has_conversation {
             let error_height = if self.chat.error.is_some() { 54.0 } else { 0.0 };
             let conversation_height = (ui.available_height()
-                - ASSISTANT_COMPOSER_RESERVED_HEIGHT
-                - ASSISTANT_BOTTOM_PADDING
+                - ASSISTANT_INPUT_HEIGHT
+                - ui.spacing().item_spacing.y
                 - error_height)
                 .max(96.0);
             self.assistant_conversation(ui, conversation_height, busy);
             self.assistant_error(ui);
             self.assistant_annotation_confirmation(ui);
         }
-        self.assistant_composer_with_options(ui, false, false, !has_conversation);
+        self.assistant_composer_with_options(ui, false, false, true);
     }
 
     fn focused_unit_screen_center_y(&self, page_rect: Rect) -> Option<f32> {
@@ -3128,6 +3127,12 @@ impl DesktopReader {
 
     fn assistant_conversation(&mut self, ui: &mut egui::Ui, height: f32, busy: bool) {
         let messages = self.chat.messages.clone();
+        let streaming_progress = self
+            .chat
+            .streaming
+            .as_ref()
+            .map(|s| s.progress.clone())
+            .unwrap_or_default();
         let streaming_content = self
             .chat
             .streaming
@@ -3135,6 +3140,7 @@ impl DesktopReader {
             .map(|streaming| streaming.content.clone());
         let routed_scroll = self.assistant_conversation_scroll_delta(ui);
         let mut clicked_citation = None;
+        let mut clicked_attachment = None;
         let scroll_output = egui::ScrollArea::vertical()
             .stick_to_bottom(true)
             .max_height(height)
@@ -3174,6 +3180,19 @@ impl DesktopReader {
                     );
                 }
                 for (message_ordinal, message) in messages.iter().enumerate() {
+                    if message.thinking_seconds.is_some() || !message.progress.is_empty() {
+                        show_chat_progress(ui, (self.chat.session_id, message_ordinal), &message.progress, false, true, message.thinking_seconds.unwrap_or(0), self.language);
+                    }
+                    if !message.images.is_empty() {
+                        ui.horizontal_wrapped(|ui| {
+                            ui.weak(self.language.text("附带图片", "Attached images"));
+                            for (index, image) in message.images.iter().enumerate() {
+                                if ui.small_button(format!("{}", index + 1)).clicked() {
+                                    clicked_attachment = Some(image.clone());
+                                }
+                            }
+                        });
+                    }
                     capture_clicked_citation(
                         &mut clicked_citation,
                         chat_message_card(
@@ -3192,15 +3211,12 @@ impl DesktopReader {
                     ui.add_space(10.0);
                 }
                 if busy {
-                    let content = streaming_content
+                    let thinking_seconds = self.chat.streaming.as_ref().map_or(0, |s| s.thinking_seconds.unwrap_or_else(|| s.started.elapsed().as_secs()));
+                    show_chat_progress(ui, (self.chat.session_id, messages.len()), &streaming_progress, true, streaming_content.as_ref().is_some_and(|s| !s.is_empty()), thinking_seconds, self.language);
+                    if let Some(content) = streaming_content
                         .as_deref()
                         .filter(|content| !content.is_empty())
-                        .unwrap_or_else(|| {
-                            self.language.text(
-                                "正在阅读和检索书籍…",
-                                "Reading and searching the book…",
-                            )
-                        });
+                    {
                     capture_clicked_citation(
                         &mut clicked_citation,
                         chat_message_card(
@@ -3213,9 +3229,16 @@ impl DesktopReader {
                             true,
                         ),
                     );
+                    }
                 }
             });
         let clicked_visual_preview = self.chat_markdown.take_clicked_visual_preview();
+        if let Some(image) = clicked_attachment {
+            match image.preview_image() {
+                Ok(image) => self.open_color_image_preview(ui.ctx(), image, "chat-attachment"),
+                Err(error) => self.chat.error = Some(error),
+            }
+        }
         auto_scroll_assistant_selection(ui.ctx(), &scroll_output);
         if let Some(locator) = clicked_citation {
             self.open_chat_citation(&locator);
@@ -4165,7 +4188,7 @@ impl DesktopReader {
     }
 
     fn image_preview_overlay(&mut self, ctx: &egui::Context) {
-        let mut close = ctx.input(|input| input.key_pressed(egui::Key::Escape));
+        let mut close = false;
         let Some(preview) = self.image_preview.as_mut() else {
             return;
         };
@@ -5267,6 +5290,10 @@ fn show_image_preview_area(
                 ui.allocate_exact_size(screen.size(), egui::Sense::click());
             ui.painter()
                 .rect_filled(backdrop_rect, 0.0, Color32::from_black_alpha(190));
+            // Transparent book illustrations often contain black formulas or line art.
+            // Composite them over opaque paper, so the dimmed page cannot show through
+            // and the original ink remains readable in either application theme.
+            ui.painter().rect_filled(image_rect, 0.0, Color32::WHITE);
             ui.painter().image(
                 texture_id,
                 image_rect,
@@ -5308,6 +5335,73 @@ fn show_image_preview_area(
             }
         });
     interaction
+}
+
+fn show_chat_progress(
+    ui: &mut egui::Ui,
+    key: (u64, usize),
+    entries: &[String],
+    busy: bool,
+    answering: bool,
+    thinking_seconds: u64,
+    language: AppLanguage,
+) {
+    let id = ui.make_persistent_id(("chat-progress", key));
+    let manual = ui.ctx().data_mut(|data| data.get_temp::<bool>(id));
+    let open = manual.unwrap_or(busy && !answering);
+    let label = if busy && !answering {
+        language.text("正在思考", "Thinking").to_owned()
+    } else {
+        match language.resolved() {
+            AppLanguage::English => format!("Thought for {thinking_seconds}s"),
+            _ => format!("已思考 {thinking_seconds} 秒"),
+        }
+    };
+    let clicked = ui
+        .horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = 4.0;
+            let arrow = ui.add(
+                icon(if open {
+                    Icon::ChevronDown
+                } else {
+                    Icon::ChevronRight
+                })
+                .size(15.0)
+                .color(palette().muted),
+            );
+            let title = ui.add(
+                egui::Label::new(RichText::new(label).color(palette().muted)).selectable(false),
+            );
+            ui.interact(
+                arrow.rect.union(title.rect),
+                id.with("toggle"),
+                egui::Sense::click(),
+            )
+            .on_hover_cursor(egui::CursorIcon::PointingHand)
+            .clicked()
+        })
+        .inner;
+    if clicked {
+        ui.ctx().data_mut(|data| data.insert_temp(id, !open));
+    }
+    if open {
+        egui::ScrollArea::vertical()
+            .id_salt(id)
+            .max_height(180.0)
+            .show(ui, |ui| {
+                for entry in entries {
+                    ui.add(
+                        egui::Label::new(RichText::new(entry).color(palette().muted))
+                            .wrap()
+                            .selectable(true),
+                    );
+                    ui.add_space(4.0);
+                }
+                if busy && !answering {
+                    ui.spinner();
+                }
+            });
+    }
 }
 
 fn zoom_from_wheel(zoom: f32, wheel_delta: f32) -> f32 {
@@ -5680,11 +5774,12 @@ mod reference_suggestion_label_tests {
             false,
             Some(true)
         ));
-        assert!(should_hide_reader_cursor(true, true, false, false));
-        assert!(!should_hide_reader_cursor(false, true, false, false));
-        assert!(!should_hide_reader_cursor(true, false, false, false));
-        assert!(!should_hide_reader_cursor(true, true, true, false));
-        assert!(!should_hide_reader_cursor(true, true, false, true));
+        assert!(should_hide_reader_cursor(true, true, false, false, false));
+        assert!(!should_hide_reader_cursor(false, true, false, false, false));
+        assert!(!should_hide_reader_cursor(true, false, false, false, false));
+        assert!(!should_hide_reader_cursor(true, true, true, false, false));
+        assert!(!should_hide_reader_cursor(true, true, false, true, false));
+        assert!(!should_hide_reader_cursor(true, true, false, false, true));
     }
 
     #[test]

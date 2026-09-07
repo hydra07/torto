@@ -142,6 +142,9 @@ impl ChatRole {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ChatTurn {
+    pub thinking_seconds: Option<u64>,
+    pub progress: Vec<String>,
+    pub images: Vec<super::chat_media::ChatImage>,
     pub role: ChatRole,
     pub content: String,
     pub display_content: Option<String>,
@@ -157,6 +160,7 @@ pub struct ChatResponse {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct ChatSelection {
+    pub images: Vec<super::chat_media::ChatImage>,
     pub text: String,
     pub ranges: Vec<SourceRange>,
 }
@@ -201,7 +205,8 @@ pub async fn chat_with_book(
     question: String,
     current: ChatReadingContext,
     response_language: String,
-    mut on_stream: impl FnMut(String) + Send,
+    cancel: Arc<tokio::sync::Notify>,
+    mut on_stream: impl FnMut(ChatStreamEvent) + Send,
 ) -> Result<ChatResponse, String> {
     let direct_pdf_summary = format == BookFormat::Pdf
         && source.book().metadata.layout == RenditionLayout::PrePaginated
@@ -223,12 +228,28 @@ pub async fn chat_with_book(
         "content": build_system_prompt(source.as_ref(), &current, &response_language),
     })];
     let history_start = history.len().saturating_sub(max_history_turns);
-    messages.extend(
-        history[history_start..]
+    let current_images = selection
+        .as_ref()
+        .map(|s| s.images.clone())
+        .unwrap_or_default();
+    let has_images = !current_images.is_empty()
+        || history[history_start..]
             .iter()
-            .map(|turn| json!({ "role": turn.role.api_name(), "content": turn.content })),
-    );
-    messages.push(json!({ "role": "user", "content": question }));
+            .any(|t| !t.images.is_empty());
+    let retained_history = history[history_start..].to_vec();
+    let current_question = question.clone();
+    let user_messages = tokio::task::spawn_blocking(move || {
+        let mut result = Vec::new();
+        for turn in retained_history {
+            result.push(json!({"role":turn.role.api_name(), "content":super::chat_media::message_content(&turn.content, &turn.images)?}));
+        }
+        result.push(json!({"role":"user", "content":super::chat_media::message_content(&current_question, &current_images)?}));
+        if has_images && result.iter().map(|message| message.to_string().len()).sum::<usize>() > 28 * 1024 * 1024 {
+            return Err("本次对话图片和历史记录过大，请减少设置中的历史对话轮数后重试。".into());
+        }
+        Ok::<_, String>(result)
+    }).await.map_err(|e| format!("准备聊天图片失败：{e}"))??;
+    messages.extend(user_messages);
 
     let client = Client::builder()
         .timeout(Duration::from_secs(if direct_pdf_summary {
@@ -262,14 +283,17 @@ pub async fn chat_with_book(
             }
         }
         messages.push(json!({ "role": "user", "content": input.content }));
-        let message = request_streaming_completion(
-            &client,
-            provider,
-            model,
-            &messages,
-            None,
-            reasoning_effort,
-            &mut on_stream,
+        let message = cancellable(
+            &cancel,
+            request_streaming_completion(
+                &client,
+                provider,
+                model,
+                &messages,
+                None,
+                reasoning_effort,
+                &mut on_stream,
+            ),
         )
         .await
         .map_err(|error| direct_pdf_summary_error(&error, input.has_images))?;
@@ -288,21 +312,28 @@ pub async fn chat_with_book(
     let mut rewrite_transactions = Vec::new();
     let mut annotation_actions = Vec::new();
     for _ in 0..max_tool_steps {
-        let message = match request_streaming_completion(
-            &client,
-            provider,
-            model,
-            &messages,
-            Some(&tools),
-            reasoning_effort,
-            &mut on_stream,
+        let completion = cancellable(
+            &cancel,
+            request_streaming_completion(
+                &client,
+                provider,
+                model,
+                &messages,
+                Some(&tools),
+                reasoning_effort,
+                &mut on_stream,
+            ),
         )
-        .await
-        {
+        .await;
+        let message = match completion {
             Ok(message) => message,
             Err(error) => {
                 rollback_rewrite_transactions(&rewrite_source, rewrite_transactions);
-                return Err(error);
+                return Err(if has_images && error != "已停止生成" {
+                    format!("图文聊天请求失败，请确认当前对话模型支持图片输入。\n{error}")
+                } else {
+                    error
+                });
             }
         };
         let tool_calls = message
@@ -325,7 +356,7 @@ pub async fn chat_with_book(
             });
         }
 
-        on_stream(String::new());
+        on_stream(ChatStreamEvent::Content(String::new()));
         messages.push(message);
         for call in tool_calls {
             let id = call
@@ -341,6 +372,19 @@ pub async fn chat_with_book(
                 .get("arguments")
                 .and_then(Value::as_str)
                 .unwrap_or("{}");
+            let tool_detail = serde_json::from_str::<Value>(arguments)
+                .ok()
+                .and_then(|args| {
+                    args.get("query")
+                        .and_then(Value::as_str)
+                        .map(|q| clip_text(q, 80))
+                })
+                .unwrap_or_default();
+            on_stream(ChatStreamEvent::Tool {
+                id: id.into(),
+                text: format!("{} {}", tool_progress_label(name), tool_detail),
+                done: false,
+            });
             let result = match llm_json::parse::<Value>(arguments) {
                 Ok(arguments) if arguments.is_object() && name == "getVisualContent" => {
                     if format == BookFormat::Pdf {
@@ -373,6 +417,19 @@ pub async fn chat_with_book(
                 Ok(_) => json!({ "error": "工具参数必须是 JSON 对象。" }),
                 Err(error) => json!({ "error": format!("工具参数 JSON 无效：{error}") }),
             };
+            let failed = result.get("error").is_some();
+            on_stream(ChatStreamEvent::Tool {
+                id: id.into(),
+                text: {
+                    let label = format!("{} {}", tool_progress_label(name), tool_detail);
+                    if failed {
+                        format!("{} · 失败", label.trim_end())
+                    } else {
+                        label.trim_end().to_owned()
+                    }
+                },
+                done: true,
+            });
             let result = citations_for_model(result);
             messages.push(json!({
                 "role": "tool",
@@ -860,6 +917,43 @@ pub(super) async fn request_completion(
         .ok_or_else(|| "AI 响应缺少 choices[0].message".into())
 }
 
+#[derive(Clone, Debug)]
+pub enum ChatStreamEvent {
+    Content(String),
+    Reasoning(String),
+    Tool {
+        id: String,
+        text: String,
+        done: bool,
+    },
+}
+
+async fn cancellable<T>(
+    cancel: &tokio::sync::Notify,
+    future: impl std::future::Future<Output = Result<T, String>>,
+) -> Result<T, String> {
+    use std::future::Future;
+    let mut notified = std::pin::pin!(cancel.notified());
+    let mut future = std::pin::pin!(future);
+    std::future::poll_fn(|cx| {
+        if notified.as_mut().poll(cx).is_ready() {
+            return std::task::Poll::Ready(Err("已停止生成".into()));
+        }
+        future.as_mut().poll(cx)
+    })
+    .await
+}
+
+fn tool_progress_label(name: &str) -> &str {
+    match name {
+        "searchBook" => "搜索书籍",
+        "getContent" => "读取正文",
+        "getCurrentContext" => "读取当前阅读内容",
+        "getVisualContent" => "查看页面图片",
+        _ => "执行书籍操作",
+    }
+}
+
 pub(super) async fn request_streaming_completion<F>(
     client: &Client,
     provider: &AiProvider,
@@ -870,7 +964,7 @@ pub(super) async fn request_streaming_completion<F>(
     on_content: &mut F,
 ) -> Result<Value, String>
 where
-    F: FnMut(String),
+    F: FnMut(ChatStreamEvent),
 {
     let mut body = json!({
         "model": if model.trim().is_empty() { "gpt-4o-mini" } else { model.trim() },
@@ -930,10 +1024,15 @@ where
             if let Some(message) = payload.pointer("/error/message").and_then(Value::as_str) {
                 return Err(format!("AI 流式响应失败：{message}"));
             }
-            if let Some(delta) = payload.pointer("/choices/0/delta")
-                && streamed.apply_delta(delta)
-            {
-                on_content(streamed.content.clone());
+            if let Some(delta) = payload.pointer("/choices/0/delta") {
+                if let Some(reasoning) = streamed_reasoning(delta) {
+                    if !reasoning.is_empty() {
+                        on_content(ChatStreamEvent::Reasoning(reasoning.into()));
+                    }
+                }
+                if streamed.apply_delta(delta) {
+                    on_content(ChatStreamEvent::Content(streamed.content.clone()));
+                }
             }
         }
         if finished {
@@ -950,8 +1049,11 @@ where
             .pointer("/choices/0/message")
             .cloned()
             .ok_or_else(|| "AI 响应缺少 choices[0].message".to_owned())?;
+        if let Some(reasoning) = streamed_reasoning(&message) {
+            on_content(ChatStreamEvent::Reasoning(reasoning.into()));
+        }
         if let Some(content) = message_content(&message) {
-            on_content(content);
+            on_content(ChatStreamEvent::Content(content));
         }
         return Ok(message);
     }
@@ -1001,12 +1103,29 @@ fn sse_event_end(buffer: &[u8]) -> Option<(usize, usize)> {
 
 #[derive(Default)]
 struct StreamedMessage {
+    reasoning: String,
     content: String,
     tool_calls: BTreeMap<usize, StreamedToolCall>,
 }
 
+fn streamed_reasoning(delta: &Value) -> Option<&str> {
+    delta
+        .get("reasoning_content")
+        .and_then(Value::as_str)
+        .filter(|s| !s.is_empty())
+        .or_else(|| {
+            delta
+                .get("reasoning")
+                .and_then(Value::as_str)
+                .filter(|s| !s.is_empty())
+        })
+}
+
 impl StreamedMessage {
     fn apply_delta(&mut self, delta: &Value) -> bool {
+        if let Some(reasoning) = streamed_reasoning(delta) {
+            self.reasoning.push_str(reasoning);
+        }
         let mut content_changed = false;
         if let Some(content) = delta.get("content").and_then(Value::as_str)
             && !content.is_empty()
@@ -1043,6 +1162,9 @@ impl StreamedMessage {
             return Err("AI 返回了空的流式响应".to_owned());
         }
         let mut message = json!({ "role": "assistant", "content": self.content });
+        if !self.reasoning.is_empty() {
+            message["reasoning_content"] = json!(self.reasoning);
+        }
         if !self.tool_calls.is_empty() {
             message["tool_calls"] = Value::Array(
                 self.tool_calls
@@ -3092,6 +3214,7 @@ mod tests {
                 "请总结当前章节。".into(),
                 fixed_page_context(),
                 "简体中文".into(),
+                Arc::new(tokio::sync::Notify::new()),
                 |_| {},
             ));
 
@@ -3192,7 +3315,8 @@ mod tests {
                 "请总结当前章节内容；每个主要结论都使用提供的 citation 就近引用。".into(),
                 context,
                 "简体中文".into(),
-                |content| eprintln!("{content}"),
+                Arc::new(tokio::sync::Notify::new()),
+                |content| eprintln!("{content:?}"),
             ))
             .expect("direct multimodal summary should succeed");
 
@@ -3324,6 +3448,29 @@ mod tests {
 
         let message = streamed.into_message().unwrap();
         assert_eq!(message.get("content").and_then(Value::as_str), Some("你好"));
+    }
+
+    #[test]
+    fn reasoning_is_separate_from_answer_and_preserved_for_tool_continuation() {
+        let mut streamed = StreamedMessage::default();
+        let delta = json!({"reasoning_content":"检查原文。"});
+        assert_eq!(streamed_reasoning(&delta), Some("检查原文。"));
+        assert!(!streamed.apply_delta(&delta));
+        streamed.apply_delta(&json!({"reasoning":"需要搜索。"}));
+        streamed.apply_delta(&json!({"content":"回答"}));
+        let message = streamed.into_message().unwrap();
+        assert_eq!(message["content"], "回答");
+        assert_eq!(message["reasoning_content"], "检查原文。需要搜索。");
+    }
+
+    #[test]
+    fn stopping_cancels_a_pending_model_response() {
+        let cancel = tokio::sync::Notify::new();
+        cancel.notify_one();
+        let result = tokio::runtime::Runtime::new()
+            .unwrap()
+            .block_on(cancellable::<Value>(&cancel, std::future::pending()));
+        assert_eq!(result.unwrap_err(), "已停止生成");
     }
 
     #[test]

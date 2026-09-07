@@ -1203,7 +1203,10 @@ fn focus_block_structure_ranges(block: &Block) -> Vec<SourceRange> {
         Block::Text(text)
             if matches!(
                 text.kind,
-                TextBlockKind::Paragraph | TextBlockKind::Blockquote | TextBlockKind::Caption
+                TextBlockKind::Paragraph
+                    | TextBlockKind::Blockquote
+                    | TextBlockKind::Caption
+                    | TextBlockKind::ListItem { .. }
             ) =>
         {
             text.source.iter().cloned().collect()
@@ -1962,7 +1965,17 @@ impl DesktopReader {
             };
             let rectangular_activation_rect = rectangular_activation
                 .then(|| focus_block_activation_geometry(layout, &paint_ranges))
-                .flatten();
+                .flatten()
+                .map(|mut bounds| {
+                    if matches!(block, Block::Text(text) if matches!(text.kind, TextBlockKind::ListItem { .. }))
+                        && let Some((text_bounds, _)) = focus_unit_geometry(layout, &paint_ranges)
+                    {
+                        // Keep the same full-height card as structured prose, but
+                        // start at the source-backed list text, after its marker.
+                        bounds.min.x = bounds.min.x.max(text_bounds.min.x);
+                    }
+                    bounds
+                });
             if is_table {
                 rect.max.y += FOCUS_TABLE_BOTTOM_MARGIN;
             }
@@ -2539,6 +2552,7 @@ struct SearchUiState {
 
 #[derive(Clone)]
 struct ChatTask {
+    cancel: Arc<tokio::sync::Notify>,
     session_id: u64,
     source: Arc<dyn BookSource>,
     format: BookFormat,
@@ -2563,12 +2577,17 @@ pub(crate) struct ChatTaskMessage {
 pub(crate) struct ChatStreamMessage {
     pub(crate) id: u64,
     pub(crate) session_id: u64,
-    pub(crate) content: String,
+    pub(crate) content: crate::plugins::ChatStreamEvent,
 }
 
 struct ChatStreamingState {
+    thinking_seconds: Option<u64>,
+    started: Instant,
     task_id: u64,
     content: String,
+    progress: Vec<String>,
+    reasoning_index: Option<usize>,
+    tools: HashMap<String, usize>,
 }
 
 struct ChatUiState {

@@ -991,6 +991,21 @@ impl ShapedTextRegion {
                     // visual first line, so ignore the marker-only byte prefix when
                     // deciding whether the line should receive full-width geometry.
                     let selectable_line_start = line_text.start.max(self.source_text_start);
+                    // The marker-to-text boundary can include kerning not present in
+                    // the separately measured hanging indent. Extend only the first
+                    // source-backed edge to that inset, never into the marker area.
+                    if line_text.start < self.source_text_start
+                        && selected_text.start <= self.source_text_start
+                        && let Some(next) = self.layout.get(line_index + 1)
+                    {
+                        let inset =
+                            f64::from(next.metrics().offset + next.metrics().inline_min_coord);
+                        if inset
+                            > f64::from(line.metrics().offset + line.metrics().inline_min_coord)
+                        {
+                            x0 = x0.min(inset);
+                        }
+                    }
                     if selected_text.start <= selectable_line_start
                         && selected_text.end >= line_text.end
                     {
@@ -1037,7 +1052,9 @@ impl ShapedTextRegion {
                             }
                             x1 = visual_start.max(visual_end);
                         } else {
-                            x0 = x0.min(visual_start.min(visual_end));
+                            if line_text.start >= self.source_text_start {
+                                x0 = x0.min(visual_start.min(visual_end));
+                            }
                             x1 = x1.max(visual_start.max(visual_end));
                         }
                     }
@@ -2776,8 +2793,16 @@ mod tests {
             footnote_reference_group: 0,
         }));
         let mut layout = builder.build(text.as_ref());
+        layout.break_all_lines(None);
+        let source_start = "•\u{00a0}".len();
+        let initial = Selection::new(
+            Cursor::from_byte_index(&layout, source_start, Affinity::Downstream),
+            Cursor::from_byte_index(&layout, text.len(), Affinity::Upstream),
+        )
+        .geometry(&layout);
+        let text_inset = initial[0].0.x0 as f32 - 0.5;
         layout.set_text_indent(
-            18.0,
+            text_inset,
             parley::IndentOptions {
                 hanging: true,
                 ..parley::IndentOptions::default()
@@ -2839,6 +2864,10 @@ mod tests {
         assert!(
             first_rect.x0 > 24.0,
             "synthetic list marker must remain outside the source-backed highlight"
+        );
+        assert!(
+            (first_rect.x0 - continuation_rect.x0).abs() < 0.01,
+            "the first line must share the hanging inset without including the marker"
         );
         assert!((continuation_rect.x1 - f64::from(expected_right + 24.0)).abs() < 0.01);
     }

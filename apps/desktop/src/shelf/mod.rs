@@ -85,6 +85,7 @@ pub(crate) struct ShelfFeature {
     language: AppLanguage,
     search_shortcut: egui::KeyboardShortcut,
     import_books_shortcut: egui::KeyboardShortcut,
+    return_to_shelf_shortcut: egui::KeyboardShortcut,
     settings_requested: bool,
     cover_textures: HashMap<String, TextureHandle>,
     read_activity: HashMap<String, u64>,
@@ -210,6 +211,8 @@ impl ShelfFeature {
             language,
             search_shortcut: egui::KeyboardShortcut::new(egui::Modifiers::CTRL, egui::Key::F),
             import_books_shortcut: egui::KeyboardShortcut::new(egui::Modifiers::CTRL, egui::Key::O),
+            return_to_shelf_shortcut: crate::preferences::ShortcutPreferences::default()
+                .return_to_shelf,
             settings_requested: false,
             cover_textures: HashMap::new(),
             read_activity: HashMap::new(),
@@ -355,6 +358,7 @@ impl ShelfFeature {
         self.language = settings.language;
         self.search_shortcut = settings.shortcuts.search;
         self.import_books_shortcut = settings.shortcuts.import_books;
+        self.return_to_shelf_shortcut = settings.shortcuts.return_to_shelf;
         self.sync.settings.clone_from(&settings.sync_settings);
         self.sync.password.clone_from(&settings.sync_password);
         self.start_sync();
@@ -655,8 +659,12 @@ impl ShelfFeature {
 
     pub(crate) fn ui(&mut self, root_ui: &mut egui::Ui, interaction_blocked: bool) {
         if self.statistics.open {
-            self.statistics
-                .ui(root_ui, self.language, interaction_blocked);
+            self.statistics.ui(
+                root_ui,
+                self.language,
+                interaction_blocked,
+                self.return_to_shelf_shortcut,
+            );
             return;
         }
         let ctx = root_ui.ctx().clone();
