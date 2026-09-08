@@ -2,6 +2,7 @@
 members = [
     "apps/desktop",
     "apps/inspect",
+    "crates/engine",
     "crates/formats",
     "crates/html",
     "crates/layout",

@@ -4050,6 +4050,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "rebook-engine"
+version = "0.5.0"
+dependencies = [
+ "rebook-formats",
+ "rebook-layout",
+ "rebook-publication",
+ "rebook-reader",
+ "rebook-renderer",
+ "thiserror 2.0.19",
+]
+
+[[package]]
 name = "rebook-formats"
 version = "0.5.0"
 dependencies = [
