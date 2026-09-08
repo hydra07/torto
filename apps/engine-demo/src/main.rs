@@ -1,5 +1,6 @@
 mod cli;
 mod commands;
+pub mod render;
 
 use std::env;
 use std::process;

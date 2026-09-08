@@ -7,12 +7,20 @@ rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
+anyrender.workspace = true
+bytemuck.workspace = true
+image.workspace = true
+kurbo.workspace = true
+peniko.workspace = true
+pollster.workspace = true
 rebook-engine = { path = "../../crates/engine" }
 rebook-layout = { path = "../../crates/layout" }
 rebook-publication = { path = "../../crates/publication" }
 rebook-reader = { path = "../../crates/reader" }
 rebook-renderer = { path = "../../crates/renderer" }
 thiserror.workspace = true
+vello.workspace = true
+wgpu.workspace = true
 
 [lints]
 workspace = true

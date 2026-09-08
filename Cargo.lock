@@ -4065,12 +4065,20 @@ dependencies = [
 name = "rebook-engine-demo"
 version = "0.5.0"
 dependencies = [
+ "anyrender",
+ "bytemuck",
+ "image",
+ "kurbo",
+ "peniko",
+ "pollster",
  "rebook-engine",
  "rebook-layout",
  "rebook-publication",
  "rebook-reader",
  "rebook-renderer",
  "thiserror 2.0.19",
+ "vello",
+ "wgpu",
 ]
 
 [[package]]
