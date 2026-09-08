@@ -8,12 +8,15 @@ use std::sync::Arc;
 
 use rebook_formats::open_bytes;
 use rebook_layout::ReaderFontBlob;
-use rebook_reader::ReaderSession;
 
 pub use book::EngineBook;
 pub use config::{EngineConfig, ReaderConfig};
 pub use error::EngineError;
 pub use reader::EngineReader;
+pub use rebook_reader::{
+    NavigationAttempt, NavigationPreparation, NavigationResult, NavigationToken, PageDirection,
+    PreparedNavigation, ReaderError, ReaderPosition, ReaderSession, ReaderSnapshot, ReaderSpread,
+};
 
 pub struct Engine {
     fonts: Arc<[ReaderFontBlob]>,
@@ -183,5 +186,9 @@ mod tests {
         assert!(spread.primary.width() > 0);
         let locator = reader.current_locator();
         assert_eq!(locator.publication_id.as_str(), "test-book");
+
+        // Test navigation preparation on facade
+        let boundary = reader.prepare_navigation(PageDirection::Previous).unwrap();
+        assert!(matches!(boundary, NavigationPreparation::Boundary));
     }
 }

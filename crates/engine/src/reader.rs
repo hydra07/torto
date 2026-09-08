@@ -1,7 +1,8 @@
 use rebook_layout::{LayoutViewport, ReaderStyle};
 use rebook_publication::{Book, LocatorV1};
 use rebook_reader::{
-    NavigationAttempt, PageDirection, ReaderError, ReaderSession, ReaderSnapshot, ReaderSpread,
+    NavigationAttempt, NavigationPreparation, NavigationResult, NavigationToken, PageDirection,
+    PreparedNavigation, ReaderError, ReaderSession, ReaderSnapshot, ReaderSpread,
 };
 
 pub struct EngineReader {
@@ -46,6 +47,31 @@ impl EngineReader {
 
     pub fn set_style(&mut self, style: ReaderStyle) -> Result<ReaderSnapshot, ReaderError> {
         self.session.set_style(style)
+    }
+
+    pub fn prepare_navigation(
+        &mut self,
+        direction: PageDirection,
+    ) -> Result<NavigationPreparation, ReaderError> {
+        self.session.prepare_navigation(direction)
+    }
+
+    pub fn poll_navigation(
+        &mut self,
+        token: NavigationToken,
+    ) -> Result<NavigationPreparation, ReaderError> {
+        self.session.poll_navigation(token)
+    }
+
+    pub fn commit_navigation(
+        &mut self,
+        prepared: PreparedNavigation,
+    ) -> Result<NavigationResult, ReaderError> {
+        self.session.commit_navigation(prepared)
+    }
+
+    pub fn cancel_navigation(&mut self, token: NavigationToken) -> bool {
+        self.session.cancel_navigation(token)
     }
 
     pub fn session(&self) -> &ReaderSession {
