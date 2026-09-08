@@ -527,6 +527,8 @@ pub(super) struct DesktopReader {
     classic_footnote_anchor_y: Option<f32>,
     classic_footnote_overlay_rect: Option<egui::Rect>,
     focus_unit_index: usize,
+    // Retain overflow navigation after its first step makes a reflowed block visible.
+    focus_overflow_origin: Option<(SourceRange, egui::Rect, egui::Vec2, f32)>,
     focus_selection_anchor: Option<usize>,
     focus_target_offset: Option<f32>,
     focus_anchor: Option<SourceAnchor>,
@@ -1462,6 +1464,33 @@ fn focus_unit_target_offset_for_rect(rect: egui::Rect, viewport_height: f32) -> 
     }
 }
 
+fn focus_navigation_scroll_bounds(
+    rect: egui::Rect,
+    viewport_height: f32,
+    padding: f32,
+    offset: f32,
+    retained_origin: Option<f32>,
+) -> Option<(f32, f32)> {
+    if let Some(bounds) = oversized_focus_unit_scroll_bounds(rect, viewport_height, padding) {
+        return Some(bounds);
+    }
+    let screen_top = rect.top() + padding - offset;
+    let screen_bottom = rect.bottom() + padding - offset;
+    if retained_origin.is_none()
+        && screen_top >= -MOTION_EPSILON
+        && screen_bottom <= viewport_height + MOTION_EPSILON
+    {
+        return None;
+    }
+    let origin = retained_origin.unwrap_or(offset);
+    let (window_top, window_bottom) = focus_reading_window(viewport_height);
+    let top = (rect.top() + padding - window_top).min(origin).max(0.0);
+    let bottom = (rect.bottom() + padding - window_bottom)
+        .max(origin)
+        .max(top);
+    Some((top, bottom))
+}
+
 fn focus_offset_after_viewport_resize(
     rect: egui::Rect,
     previous_viewport_height: f32,
@@ -2083,11 +2112,29 @@ impl DesktopReader {
             return false;
         };
         let padding = self.scroll_content_padding(viewport.size.y);
-        let Some((top, bottom)) =
-            oversized_focus_unit_scroll_bounds(unit.rect, viewport.size.y, padding)
-        else {
+        let retained_origin =
+            self.focus_overflow_origin
+                .as_ref()
+                .and_then(|(range, rect, size, origin)| {
+                    (range == &unit.range && *rect == unit.rect && *size == viewport.size)
+                        .then_some(*origin)
+                });
+        let Some((top, bottom)) = focus_navigation_scroll_bounds(
+            unit.rect,
+            viewport.size.y,
+            padding,
+            viewport.offset_y,
+            retained_origin,
+        ) else {
+            self.focus_overflow_origin = None;
             return false;
         };
+        self.focus_overflow_origin = Some((
+            unit.range.clone(),
+            unit.rect,
+            viewport.size,
+            retained_origin.unwrap_or(viewport.offset_y),
+        ));
         if self.ui.focus_scroll_motion.is_some_and(|motion| {
             motion.is_animating()
                 && match direction {
@@ -2138,6 +2185,7 @@ impl DesktopReader {
         self.ui.focus_footnote_scroll_delta = 0.0;
         self.focus_toc_override = None;
         self.focus_unit_index = index;
+        self.focus_overflow_origin = None;
         self.focus_anchor = self
             .focus_units
             .get(index)
@@ -3262,6 +3310,7 @@ impl DesktopReader {
             classic_footnote_anchor_y: None,
             classic_footnote_overlay_rect: None,
             focus_unit_index: 0,
+            focus_overflow_origin: None,
             focus_selection_anchor: None,
             focus_target_offset: None,
             focus_anchor: restored_focus_anchor,
@@ -4491,6 +4540,52 @@ mod tests {
         assert!((top - 280.0).abs() < f32::EPSILON);
         assert!((bottom - 520.0).abs() < f32::EPSILON);
         assert!((bottom - top - FOCUS_UNIT_MIN_HEIGHT).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn reflowed_short_block_scrolls_until_its_tail_enters_reading_window() {
+        // 600px block starts at y=500 in an 800px viewport after expanding.
+        let rect = egui::Rect::from_min_size(egui::pos2(0.0, 100.0), egui::vec2(400.0, 600.0));
+        let (top, bottom) =
+            super::focus_navigation_scroll_bounds(rect, 800.0, 400.0, 0.0, None).unwrap();
+        assert!((top - 0.0).abs() < 0.01);
+        let mut offset = 0.0;
+        let mut steps = 0;
+        while let Some(next) = focus_scroll_target(offset, top, bottom, 240.0, PageDirection::Next)
+        {
+            assert!(next > offset);
+            assert!(next - offset <= 240.01);
+            offset = next;
+            steps += 1;
+            assert!(steps < 10);
+            assert_eq!(
+                super::focus_navigation_scroll_bounds(rect, 800.0, 400.0, offset, Some(0.0)),
+                Some((top, bottom))
+            );
+        }
+        let (_, window_bottom) = focus_reading_window(800.0);
+        assert!((rect.bottom() + 400.0 - offset - window_bottom).abs() < 0.01);
+        assert!(steps > 1);
+        assert!(focus_scroll_target(offset, top, bottom, 240.0, PageDirection::Previous).is_some());
+    }
+
+    #[test]
+    fn visible_short_blocks_do_not_enter_overflow_navigation() {
+        let rect = egui::Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(400.0, 600.0));
+        assert!(super::focus_navigation_scroll_bounds(rect, 800.0, 400.0, 300.0, None).is_none());
+        // A narrower/shorter viewport reclassifies using its current geometry.
+        assert!(super::focus_navigation_scroll_bounds(rect, 500.0, 250.0, 300.0, None).is_some());
+        assert!(super::focus_navigation_scroll_bounds(rect, 1200.0, 600.0, 300.0, None).is_none());
+    }
+
+    #[test]
+    fn short_block_clipped_above_can_scroll_back_to_its_start() {
+        let rect = egui::Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(400.0, 600.0));
+        let (top, bottom) =
+            super::focus_navigation_scroll_bounds(rect, 800.0, 400.0, 500.0, None).unwrap();
+        let next = focus_scroll_target(500.0, top, bottom, 240.0, PageDirection::Previous).unwrap();
+        assert!(next < 500.0);
+        assert!(focus_scroll_target(500.0, top, bottom, 240.0, PageDirection::Next).is_none());
     }
 
     #[test]

@@ -947,7 +947,11 @@ impl Page {
                     ui,
                     id,
                     book,
-                    &duration(time),
+                    &if time == 0 {
+                        String::new()
+                    } else {
+                        duration(time)
+                    },
                     language,
                     self.covers.get(id).map(Vec::as_slice),
                     &mut self.textures,
