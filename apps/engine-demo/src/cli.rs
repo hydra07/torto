@@ -28,6 +28,7 @@ pub enum Command {
         metrics: Option<MetricsFormat>,
         metrics_file: Option<PathBuf>,
         profile: ResourceProfile,
+        transition: Option<crate::transition::TransitionKind>,
     },
 }
 
@@ -169,6 +170,7 @@ where
             let mut metrics = None;
             let mut metrics_file = None;
             let mut profile = ResourceProfile::Balanced;
+            let mut transition = None;
 
             let mut iter = iter.peekable();
             while let Some(arg) = iter.next() {
@@ -198,16 +200,28 @@ where
                             ));
                         }
                     }
+                } else if arg == "--transition" {
+                    let val = iter.next().ok_or("Missing value for --transition")?;
+                    match val.to_lowercase().as_str() {
+                        "none" => transition = Some(crate::transition::TransitionKind::None),
+                        "slide" => transition = Some(crate::transition::TransitionKind::Slide),
+                        other => {
+                            return Err(format!(
+                                "Invalid --transition: {other}. Expected none or slide"
+                            ));
+                        }
+                    }
                 } else if !arg.starts_with('-') && book.is_none() {
                     book = Some(PathBuf::from(arg));
                 }
             }
-            let book = book.ok_or_else(|| "Usage: rebook-engine-demo window BOOK [--metrics text|json] [--metrics-file PATH] [--profile low|balanced|high]".to_string())?;
+            let book = book.ok_or_else(|| "Usage: rebook-engine-demo window BOOK [--metrics text|json] [--metrics-file PATH] [--profile low|balanced|high] [--transition none|slide]".to_string())?;
             Ok(Command::Window {
                 book,
                 metrics,
                 metrics_file,
                 profile,
+                transition,
             })
         }
         other => Err(format!(
@@ -293,6 +307,8 @@ mod tests {
             "text".into(),
             "--metrics-file".into(),
             "/tmp/metrics.txt".into(),
+            "--transition".into(),
+            "slide".into(),
         ];
         assert_eq!(
             parse_args(window_args).unwrap(),
@@ -301,6 +317,7 @@ mod tests {
                 metrics: Some(MetricsFormat::Text),
                 metrics_file: Some(PathBuf::from("/tmp/metrics.txt")),
                 profile: ResourceProfile::Balanced,
+                transition: Some(crate::transition::TransitionKind::Slide),
             }
         );
     }

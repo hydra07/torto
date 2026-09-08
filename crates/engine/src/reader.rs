@@ -2,7 +2,7 @@ use rebook_layout::{LayoutViewport, ReaderStyle};
 use rebook_publication::{Book, LocatorV1};
 use rebook_reader::{
     NavigationAttempt, NavigationPreparation, NavigationResult, NavigationToken, PageDirection,
-    PreparedNavigation, ReaderError, ReaderSession, ReaderSnapshot, ReaderSpread,
+    PreparedNavigation, ReaderError, ReaderPosition, ReaderSession, ReaderSnapshot, ReaderSpread,
 };
 
 pub struct EngineReader {
@@ -24,6 +24,18 @@ impl EngineReader {
 
     pub fn current_spread(&mut self) -> Result<ReaderSpread, ReaderError> {
         self.session.current_spread()
+    }
+
+    pub fn spread_at(&mut self, position: ReaderPosition) -> Result<ReaderSpread, ReaderError> {
+        self.session.spread_at(position)
+    }
+
+    pub fn current_position(&self) -> ReaderPosition {
+        self.session.current_position()
+    }
+
+    pub fn current_spread_positions(&mut self) -> Result<Vec<ReaderPosition>, ReaderError> {
+        self.session.current_spread_positions()
     }
 
     pub fn current_locator(&self) -> LocatorV1 {

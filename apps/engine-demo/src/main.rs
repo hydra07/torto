@@ -4,6 +4,7 @@ mod commands;
 pub mod metrics;
 pub mod render;
 pub mod surface;
+pub mod transition;
 
 use std::env;
 use std::process;
@@ -47,7 +48,8 @@ fn main() {
             metrics,
             metrics_file,
             profile,
-        } => commands::window::run(&book, metrics, metrics_file, profile),
+            transition,
+        } => commands::window::run(&book, metrics, metrics_file, profile, transition),
     };
 
     if let Err(err) = result {

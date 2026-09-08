@@ -180,6 +180,7 @@ pub struct ReaderVisibleTextFragment {
 /// One visual reader surface assembled from adjacent logical pages. In double
 /// mode the secondary page may come from the next layout segment or authored
 /// spine section.
+#[derive(Clone)]
 pub struct ReaderSpread {
     pub primary: Arc<PageDisplayList>,
     pub secondary: Option<Arc<PageDisplayList>>,
@@ -2764,7 +2765,7 @@ impl ReaderSession {
             .ok_or(ReaderError::PageOutOfBounds(position))
     }
 
-    fn current_position(&self) -> ReaderPosition {
+    pub fn current_position(&self) -> ReaderPosition {
         ReaderPosition {
             section_index: self.current_section,
             segment_index: self.current_segment,
@@ -7010,7 +7011,9 @@ mod tests {
         assert_eq!(reader.current_locator(), initial_locator);
 
         // 4. Reprepare (now cached, returns Ready immediately) and commit
-        let NavigationPreparation::Ready(prepared) = reader.prepare_navigation(PageDirection::Next).unwrap() else {
+        let NavigationPreparation::Ready(prepared) =
+            reader.prepare_navigation(PageDirection::Next).unwrap()
+        else {
             panic!("expected ready prepared navigation");
         };
         let expected_destination = prepared.destination();
@@ -7020,7 +7023,9 @@ mod tests {
 
         // 5. Double commit with same token fails
         reader.wait_for_prefetch().unwrap();
-        let NavigationPreparation::Ready(stale_prepared) = reader.prepare_navigation(PageDirection::Previous).unwrap() else {
+        let NavigationPreparation::Ready(stale_prepared) =
+            reader.prepare_navigation(PageDirection::Previous).unwrap()
+        else {
             panic!("expected ready prepared navigation");
         };
         let token = stale_prepared.token();
@@ -7039,7 +7044,9 @@ mod tests {
         reader.wait_for_prefetch().unwrap();
 
         // First prepare triggers prefetch
-        let NavigationPreparation::Pending(token) = reader.prepare_navigation(PageDirection::Next).unwrap() else {
+        let NavigationPreparation::Pending(token) =
+            reader.prepare_navigation(PageDirection::Next).unwrap()
+        else {
             panic!("expected pending");
         };
         reader.wait_for_prefetch().unwrap();
@@ -7063,11 +7070,14 @@ mod tests {
 
         // Wait for prefetch after resize
         reader.wait_for_prefetch().unwrap();
-        let NavigationPreparation::Pending(token2) = reader.prepare_navigation(PageDirection::Next).unwrap() else {
+        let NavigationPreparation::Pending(token2) =
+            reader.prepare_navigation(PageDirection::Next).unwrap()
+        else {
             panic!("expected pending");
         };
         reader.wait_for_prefetch().unwrap();
-        let NavigationPreparation::Ready(prepared2) = reader.poll_navigation(token2).unwrap() else {
+        let NavigationPreparation::Ready(prepared2) = reader.poll_navigation(token2).unwrap()
+        else {
             panic!("expected ready prepared navigation");
         };
         let token2 = prepared2.token();
@@ -7082,4 +7092,3 @@ mod tests {
         assert!(!reader.cancel_navigation(token2));
     }
 }
-
