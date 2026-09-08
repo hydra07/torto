@@ -105,7 +105,7 @@ pub struct ReaderLocation {
 }
 
 /// Resolved random-access destination in the current pagination generation.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct ReaderPosition {
     pub section_index: usize,
     pub segment_index: usize,

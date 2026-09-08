@@ -2,10 +2,9 @@ use std::sync::mpsc;
 use std::time::Instant;
 
 use peniko::Color;
-use rebook_reader::ReaderSpread;
+use rebook_reader::{ReaderPosition, ReaderSpread};
 use vello::{
     AaConfig, AaSupport, RenderParams, Renderer as VelloRenderer, RendererOptions as VelloOptions,
-    Scene,
 };
 use wgpu::{
     BufferAsyncError, BufferDescriptor, BufferUsages, CommandEncoderDescriptor, Device,
@@ -14,8 +13,9 @@ use wgpu::{
     TextureFormat, TextureUsages, TextureViewDescriptor,
 };
 
+use super::compositor::ReaderCompositor;
 use super::metrics::RenderMetrics;
-use super::vello::VelloScene;
+use super::scene::{OverlaySet, PageSceneKey, SpreadSceneKey};
 
 pub struct OffscreenTarget {
     device: Device,
@@ -73,32 +73,31 @@ impl OffscreenTarget {
             ..Default::default()
         };
 
-        // 1. Build Scene
+        // 1. Build Scene via ReaderCompositor
         let scene_start = Instant::now();
-        let mut scene = Scene::new();
-        {
-            let mut bridge = VelloScene::new(&mut scene);
-            spread.primary.paint_background(&mut bridge);
-            spread
-                .primary
-                .paint_content_at(&mut bridge, spread.primary_offset_x);
-            if let Some(secondary) = &spread.secondary {
-                secondary.paint_content_at(&mut bridge, spread.secondary_offset_x);
-            }
-        }
+        let key = SpreadSceneKey {
+            primary: PageSceneKey {
+                position: ReaderPosition {
+                    section_index: 0,
+                    segment_index: 0,
+                    page_index: 0,
+                },
+                layout_generation: 0,
+            },
+            secondary: None,
+            width,
+            height,
+        };
+        let layers = ReaderCompositor::build_static_layers(spread, key);
+        let overlays = OverlaySet::default();
+        let scene = ReaderCompositor::compose_spread_scene(&layers, spread, &overlays, None);
         metrics.scene_build = scene_start.elapsed();
 
         // 2. Mark images dirty if present
         let mut image_count = 0;
-        for image in spread.primary.image_data() {
+        for image in layers.images.iter() {
             self.vello_renderer.mark_override_image_dirty(image);
             image_count += 1;
-        }
-        if let Some(secondary) = &spread.secondary {
-            for image in secondary.image_data() {
-                self.vello_renderer.mark_override_image_dirty(image);
-                image_count += 1;
-            }
         }
         metrics.image_count = image_count;
 
