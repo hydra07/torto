@@ -4076,6 +4076,8 @@ dependencies = [
  "rebook-publication",
  "rebook-reader",
  "rebook-renderer",
+ "serde",
+ "serde_json",
  "thiserror 2.0.19",
  "vello",
  "wgpu",

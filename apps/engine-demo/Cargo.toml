@@ -19,6 +19,8 @@ rebook-publication = { path = "../../crates/publication" }
 rebook-reader = { path = "../../crates/reader" }
 rebook-renderer = { path = "../../crates/renderer" }
 thiserror.workspace = true
+serde.workspace = true
+serde_json.workspace = true
 vello.workspace = true
 wgpu.workspace = true
 winit.workspace = true

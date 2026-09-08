@@ -1,6 +1,7 @@
 pub mod application;
 mod cli;
 mod commands;
+pub mod metrics;
 pub mod render;
 pub mod surface;
 
@@ -29,8 +30,24 @@ fn main() {
             output,
             width,
             height,
-        } => commands::render::run(&book, &output, width, height),
-        cli::Command::Window { book } => commands::window::run(&book),
+            metrics,
+            metrics_file,
+            profile,
+        } => commands::render::run(
+            &book,
+            &output,
+            width,
+            height,
+            metrics,
+            metrics_file.as_deref(),
+            profile,
+        ),
+        cli::Command::Window {
+            book,
+            metrics,
+            metrics_file,
+            profile,
+        } => commands::window::run(&book, metrics, metrics_file, profile),
     };
 
     if let Err(err) = result {
