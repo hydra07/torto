@@ -56,6 +56,10 @@ pub fn run(book_path: &Path, output: &Path, width: u32, height: u32) -> Result<(
     println!("Vello Submit Time:        {:.2?}", metrics.gpu_submit);
     println!("GPU Readback Time:        {:.2?}", metrics.readback);
     println!("PNG Encode Time:          {:.2?}", metrics.png_encode);
+    println!(
+        "Scene Cache:              hits={}, misses={}, builds={}, evictions={}",
+        metrics.cache.hits, metrics.cache.misses, metrics.cache.builds, metrics.cache.evictions
+    );
 
     Ok(())
 }

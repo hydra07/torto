@@ -17,10 +17,13 @@ use super::compositor::ReaderCompositor;
 use super::metrics::RenderMetrics;
 use super::scene::{OverlaySet, PageSceneKey, SpreadSceneKey};
 
+use super::scene_cache::{DEFAULT_SCENE_CACHE_CAPACITY, SpreadSceneCache};
+
 pub struct OffscreenTarget {
     device: Device,
     queue: Queue,
     vello_renderer: VelloRenderer,
+    scene_cache: SpreadSceneCache,
 }
 
 impl OffscreenTarget {
@@ -56,6 +59,7 @@ impl OffscreenTarget {
             device,
             queue,
             vello_renderer,
+            scene_cache: SpreadSceneCache::new(DEFAULT_SCENE_CACHE_CAPACITY),
         })
     }
 
@@ -73,7 +77,7 @@ impl OffscreenTarget {
             ..Default::default()
         };
 
-        // 1. Build Scene via ReaderCompositor
+        // 1. Build Scene via ReaderCompositor & Cache
         let scene_start = Instant::now();
         let key = SpreadSceneKey {
             primary: PageSceneKey {
@@ -88,10 +92,11 @@ impl OffscreenTarget {
             width,
             height,
         };
-        let layers = ReaderCompositor::build_static_layers(spread, key);
+        let layers = self.scene_cache.get_or_build(&key, spread);
         let overlays = OverlaySet::default();
         let scene = ReaderCompositor::compose_spread_scene(&layers, spread, &overlays, None);
         metrics.scene_build = scene_start.elapsed();
+        metrics.cache = self.scene_cache.metrics().clone();
 
         // 2. Mark images dirty if present
         let mut image_count = 0;

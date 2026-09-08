@@ -9,4 +9,5 @@ pub struct RenderMetrics {
     pub width: u32,
     pub height: u32,
     pub image_count: usize,
+    pub cache: super::scene_cache::CacheMetrics,
 }
