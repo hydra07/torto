@@ -4079,6 +4079,7 @@ dependencies = [
  "thiserror 2.0.19",
  "vello",
  "wgpu",
+ "winit",
 ]
 
 [[package]]

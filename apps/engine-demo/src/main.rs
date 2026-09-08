@@ -1,6 +1,8 @@
+pub mod application;
 mod cli;
 mod commands;
 pub mod render;
+pub mod surface;
 
 use std::env;
 use std::process;

@@ -21,6 +21,7 @@ rebook-renderer = { path = "../../crates/renderer" }
 thiserror.workspace = true
 vello.workspace = true
 wgpu.workspace = true
+winit.workspace = true
 
 [lints]
 workspace = true

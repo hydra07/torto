@@ -112,6 +112,16 @@ pub struct ReaderPosition {
     pub page_index: usize,
 }
 
+impl From<ReaderLocation> for ReaderPosition {
+    fn from(loc: ReaderLocation) -> Self {
+        Self {
+            section_index: loc.section_index,
+            segment_index: loc.segment_index,
+            page_index: loc.page_index,
+        }
+    }
+}
+
 /// A pointer-resolved text position tied to the current pagination generation.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ReaderTextHit {
