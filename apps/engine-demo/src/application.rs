@@ -1,3 +1,4 @@
+use std::fs;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Instant;
@@ -12,7 +13,9 @@ use winit::event_loop::ActiveEventLoop;
 use winit::keyboard::{KeyCode, PhysicalKey};
 use winit::window::{Window, WindowId};
 
+use crate::metrics::{FrameStats, MetricsFormat, PipelineMetrics, RollingWindowMetrics};
 use crate::render::scene::{OverlaySet, PageSceneKey, SpreadSceneKey};
+use crate::render::scene_cache::{MemoryPressure, ResourceProfile};
 use crate::render::{ReaderCompositor, SpreadSceneCache};
 use crate::surface::SurfaceRenderer;
 
@@ -26,6 +29,9 @@ pub enum DirtyState {
 
 pub struct DemoApplication {
     book_path: PathBuf,
+    metrics_format: Option<MetricsFormat>,
+    metrics_file: Option<PathBuf>,
+    profile: ResourceProfile,
     engine: Engine,
     book: Option<EngineBook>,
     reader: Option<EngineReader>,
@@ -36,43 +42,67 @@ pub struct DemoApplication {
     dirty: DirtyState,
     layout_generation: u64,
     show_metrics: bool,
+    rolling_metrics: RollingWindowMetrics,
+    pipeline_metrics: Option<PipelineMetrics>,
+    last_frame_instant: Option<Instant>,
 }
 
 impl DemoApplication {
-    pub fn new(book_path: PathBuf) -> Self {
+    pub fn new(
+        book_path: PathBuf,
+        metrics_format: Option<MetricsFormat>,
+        metrics_file: Option<PathBuf>,
+        profile: ResourceProfile,
+    ) -> Self {
         Self {
             book_path,
+            metrics_format,
+            metrics_file,
+            profile,
             engine: Engine::default(),
             book: None,
             reader: None,
             gpu: None,
-            scene_cache: SpreadSceneCache::new(16),
+            scene_cache: SpreadSceneCache::with_profile(profile),
             window: None,
             viewport: PhysicalSize::new(800, 1000),
             dirty: DirtyState::Scene,
             layout_generation: 0,
             show_metrics: false,
+            rolling_metrics: RollingWindowMetrics::new(120),
+            pipeline_metrics: None,
+            last_frame_instant: None,
         }
     }
 
     fn ensure_reader(&mut self, width: u32, height: u32) -> Result<(), String> {
+        let mut file_read_dur = std::time::Duration::ZERO;
+        let mut open_dur = std::time::Duration::ZERO;
+
         if self.book.is_none() {
-            let bytes = std::fs::read(&self.book_path)
+            let start_read = Instant::now();
+            let bytes = fs::read(&self.book_path)
                 .map_err(|e| format!("Failed to read {}: {e}", self.book_path.display()))?;
+            file_read_dur = start_read.elapsed();
+
             let file_name = self
                 .book_path
                 .file_name()
                 .and_then(|n| n.to_str())
                 .unwrap_or("book");
+
+            let start_open = Instant::now();
             let book = self
                 .engine
                 .open_bytes(bytes, file_name)
                 .map_err(|e| format!("Failed to open book: {e}"))?;
+            open_dur = start_open.elapsed();
             self.book = Some(book);
         }
 
         let book = self.book.as_ref().unwrap();
         if self.reader.is_none() {
+            let start_reader = Instant::now();
             let reader = self
                 .engine
                 .create_reader(
@@ -84,8 +114,18 @@ impl DemoApplication {
                     },
                 )
                 .map_err(|e| format!("Failed to create reader: {e}"))?;
+            let reader_dur = start_reader.elapsed();
             self.reader = Some(reader);
             self.layout_generation += 1;
+
+            self.pipeline_metrics = Some(PipelineMetrics::from_durations(
+                file_read_dur,
+                open_dur,
+                reader_dur,
+                std::time::Duration::ZERO,
+                std::time::Duration::ZERO,
+                None,
+            ));
         }
 
         Ok(())
@@ -99,7 +139,12 @@ impl DemoApplication {
             return Ok(());
         };
 
-        let start_time = Instant::now();
+        let frame_start = Instant::now();
+        let frame_interval = self
+            .last_frame_instant
+            .map_or(std::time::Duration::from_millis(16), |prev| prev.elapsed());
+        self.last_frame_instant = Some(frame_start);
+
         let spread = reader
             .current_spread()
             .map_err(|e| format!("Failed to get spread: {e}"))?;
@@ -119,7 +164,10 @@ impl DemoApplication {
         self.scene_cache.clear_pins();
         self.scene_cache.pin(key.clone());
 
+        let pre_builds = self.scene_cache.metrics().builds;
         let layers = self.scene_cache.get_or_build(&key, &spread);
+        let scene_builds = self.scene_cache.metrics().builds - pre_builds;
+
         for image in layers.images.iter() {
             gpu.mark_image_dirty(image);
         }
@@ -128,17 +176,33 @@ impl DemoApplication {
         let scene = ReaderCompositor::compose_spread_scene(&layers, &spread, &overlays, None);
         gpu.render_frame(&scene)?;
 
-        let elapsed = start_time.elapsed();
+        let cpu_duration = frame_start.elapsed();
+
+        let missed_60hz = cpu_duration > std::time::Duration::from_millis(16);
+        let missed_120hz = cpu_duration > std::time::Duration::from_millis(8);
+
+        let stats = FrameStats {
+            interval_ms: frame_interval.as_secs_f64() * 1000.0,
+            cpu_duration_ms: cpu_duration.as_secs_f64() * 1000.0,
+            gpu_duration_ms: None,
+            scene_builds,
+            target_recreations: 0,
+            missed_60hz,
+            missed_120hz,
+        };
+        self.rolling_metrics.record_frame(&stats);
+
         if self.show_metrics
             && let Some(window) = &self.window
         {
+            let (p50, p95, _p99) = self.rolling_metrics.cpu_percentiles();
             let cache_metrics = self.scene_cache.metrics();
             window.set_title(&format!(
-                "Torto Engine Demo - Spread {}/{} (sec {}) | Frame: {:.2?} | Cache: hits={}, misses={}, builds={}",
+                "Torto Demo - Page {}/{} | CPU p50: {:.2?} p95: {:.2?} | Cache: hits={}, misses={}, builds={}",
                 snapshot.location.page_index + 1,
                 snapshot.location.page_count,
-                snapshot.location.section_index,
-                elapsed,
+                p50,
+                p95,
                 cache_metrics.hits,
                 cache_metrics.misses,
                 cache_metrics.builds
@@ -147,6 +211,45 @@ impl DemoApplication {
 
         self.dirty = DirtyState::Clean;
         Ok(())
+    }
+
+    fn dump_metrics_if_requested(&self) {
+        if self.metrics_format.is_none() && self.metrics_file.is_none() {
+            return;
+        }
+
+        let ctx = crate::metrics::ReportContext {
+            viewport: (self.viewport.width, self.viewport.height),
+            adapter_backend: "wgpu-vello-surface".to_string(),
+            spread_mode: "Single".to_string(),
+            transition_kind: "None".to_string(),
+            resource_profile: format!("{:?}", self.profile),
+        };
+        let report = self.rolling_metrics.build_report(
+            ctx,
+            self.pipeline_metrics.clone(),
+            self.scene_cache.metrics().clone(),
+        );
+
+        let formatted = match self.metrics_format {
+            Some(MetricsFormat::Json) => serde_json::to_string_pretty(&report).unwrap_or_default(),
+            Some(MetricsFormat::Text) => format!("{report:#?}"),
+            None => String::new(),
+        };
+
+        if let Some(format) = self.metrics_format {
+            println!("\n=== Final Window Metrics ({format:?}) ===");
+            println!("{formatted}");
+        }
+
+        if let Some(path) = &self.metrics_file {
+            let content = if formatted.is_empty() {
+                serde_json::to_string_pretty(&report).unwrap_or_default()
+            } else {
+                formatted
+            };
+            let _ = fs::write(path, content);
+        }
     }
 }
 
@@ -201,6 +304,7 @@ impl ApplicationHandler for DemoApplication {
     ) {
         match event {
             WindowEvent::CloseRequested => {
+                self.dump_metrics_if_requested();
                 event_loop.exit();
             }
             WindowEvent::Resized(new_size) => {
@@ -233,6 +337,7 @@ impl ApplicationHandler for DemoApplication {
             WindowEvent::KeyboardInput { event, .. } if event.state.is_pressed() => {
                 match event.physical_key {
                     PhysicalKey::Code(KeyCode::Escape) => {
+                        self.dump_metrics_if_requested();
                         event_loop.exit();
                     }
                     PhysicalKey::Code(KeyCode::ArrowRight | KeyCode::Space) => {
@@ -255,6 +360,15 @@ impl ApplicationHandler for DemoApplication {
                     }
                     PhysicalKey::Code(KeyCode::KeyR) => {
                         self.scene_cache.clear();
+                        self.dirty = DirtyState::Scene;
+                        if let Some(w) = &self.window {
+                            w.request_redraw();
+                        }
+                    }
+                    PhysicalKey::Code(KeyCode::KeyM) => {
+                        // Simulate critical memory pressure
+                        self.scene_cache
+                            .handle_memory_pressure(MemoryPressure::Critical);
                         self.dirty = DirtyState::Scene;
                         if let Some(w) = &self.window {
                             w.request_redraw();

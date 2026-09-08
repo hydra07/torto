@@ -8,7 +8,32 @@ use super::scene::{SpreadSceneKey, StaticSpreadLayers};
 
 pub const DEFAULT_SCENE_CACHE_CAPACITY: usize = 16;
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ResourceProfile {
+    Low,
+    Balanced,
+    High,
+}
+
+impl ResourceProfile {
+    pub const fn compositor_capacity(self) -> usize {
+        match self {
+            Self::Low => 4,
+            Self::Balanced => 16,
+            Self::High => 64,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MemoryPressure {
+    Moderate,
+    Critical,
+}
+
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct CacheMetrics {
     pub hits: usize,
     pub misses: usize,
@@ -32,6 +57,51 @@ impl SpreadSceneCache {
             lru: VecDeque::new(),
             pinned_keys: HashSet::new(),
             metrics: CacheMetrics::default(),
+        }
+    }
+
+    pub fn with_profile(profile: ResourceProfile) -> Self {
+        Self::new(profile.compositor_capacity())
+    }
+
+    pub fn handle_memory_pressure(&mut self, pressure: MemoryPressure) {
+        match pressure {
+            MemoryPressure::Moderate => {
+                // Drop unpinned entries beyond half of current capacity
+                let target_capacity = (self.capacity / 2).max(2);
+                while self.entries.len() > target_capacity {
+                    let mut evicted = false;
+                    for i in 0..self.lru.len() {
+                        let candidate = &self.lru[i];
+                        if !self.pinned_keys.contains(candidate) {
+                            if let Some(key) = self.lru.remove(i) {
+                                self.entries.remove(&key);
+                                self.metrics.evictions += 1;
+                                evicted = true;
+                            }
+                            break;
+                        }
+                    }
+                    if !evicted {
+                        break;
+                    }
+                }
+            }
+            MemoryPressure::Critical => {
+                // Keep only pinned entries (e.g. current spread and prepared destination)
+                let pinned = self.pinned_keys.clone();
+                let keys_to_remove: Vec<SpreadSceneKey> = self
+                    .entries
+                    .keys()
+                    .filter(|k| !pinned.contains(k))
+                    .cloned()
+                    .collect();
+                for key in keys_to_remove {
+                    self.entries.remove(&key);
+                    self.metrics.evictions += 1;
+                }
+                self.lru.retain(|k| pinned.contains(k));
+            }
         }
     }
 
@@ -104,10 +174,11 @@ impl SpreadSceneCache {
             for i in 0..self.lru.len() {
                 let candidate = &self.lru[i];
                 if !self.pinned_keys.contains(candidate) {
-                    let key = self.lru.remove(i).unwrap();
-                    self.entries.remove(&key);
-                    self.metrics.evictions += 1;
-                    evicted = true;
+                    if let Some(key) = self.lru.remove(i) {
+                        self.entries.remove(&key);
+                        self.metrics.evictions += 1;
+                        evicted = true;
+                    }
                     break;
                 }
             }
@@ -178,43 +249,46 @@ mod tests {
         let k2 = make_key(1, 0);
         let k3 = make_key(2, 0);
 
-        // First access: miss + build
         let _ = cache.get_or_build(&k1, &spread);
         assert_eq!(cache.metrics().misses, 1);
         assert_eq!(cache.metrics().hits, 0);
         assert_eq!(cache.metrics().builds, 1);
 
-        // Second access to same spread: hit
         let _ = cache.get_or_build(&k1, &spread);
         assert_eq!(cache.metrics().hits, 1);
         assert_eq!(cache.metrics().builds, 1);
 
-        // Access k2: miss
         let _ = cache.get_or_build(&k2, &spread);
         assert_eq!(cache.len(), 2);
 
-        // Access k3: causes eviction of k1 (since k1 was least recently accessed)
         let _ = cache.get_or_build(&k3, &spread);
         assert_eq!(cache.len(), 2);
         assert_eq!(cache.metrics().evictions, 1);
 
-        // Pinning prevents eviction
         cache.pin(k2.clone());
-        let _ = cache.get_or_build(&k1, &spread); // should evict k3, not pinned k2
+        let _ = cache.get_or_build(&k1, &spread);
         assert!(cache.entries.contains_key(&k2));
     }
 
     #[test]
-    fn clear_invalidates_all_entries() {
-        let mut cache = SpreadSceneCache::new(4);
+    fn memory_pressure_evicts_unpinned_entries() {
+        let mut cache = SpreadSceneCache::new(10);
         let spread = make_test_spread();
+
         let k1 = make_key(0, 0);
+        let k2 = make_key(1, 0);
+        let k3 = make_key(2, 0);
 
         let _ = cache.get_or_build(&k1, &spread);
-        assert_eq!(cache.len(), 1);
+        let _ = cache.get_or_build(&k2, &spread);
+        let _ = cache.get_or_build(&k3, &spread);
+        assert_eq!(cache.len(), 3);
 
-        cache.clear();
-        assert_eq!(cache.len(), 0);
-        assert!(cache.is_empty());
+        cache.pin(k2.clone());
+        cache.handle_memory_pressure(MemoryPressure::Critical);
+
+        // Only pinned k2 should remain
+        assert_eq!(cache.len(), 1);
+        assert!(cache.entries.contains_key(&k2));
     }
 }

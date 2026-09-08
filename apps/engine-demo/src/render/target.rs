@@ -63,6 +63,14 @@ impl OffscreenTarget {
         })
     }
 
+    pub async fn with_profile(
+        profile: super::scene_cache::ResourceProfile,
+    ) -> Result<Self, String> {
+        let mut target = Self::new().await?;
+        target.scene_cache = SpreadSceneCache::with_profile(profile);
+        Ok(target)
+    }
+
     pub fn render_spread_to_png(
         &mut self,
         spread: &ReaderSpread,
