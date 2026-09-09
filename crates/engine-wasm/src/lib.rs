@@ -13,7 +13,8 @@ use std::time::Duration;
 use cpu_surface::CpuSurfaceRenderer;
 use rebook_engine::{
     Engine, EngineAnimationState, EngineConfig, EngineNavigationState, EngineReader, LocatorV1,
-    PageDirection, PointerGestureResult, ReaderConfig, TickResult,
+    PageDirection, PointerGestureResult, ReaderConfig, ReaderStyle, Rgba, SourceRange, SpreadMode,
+    TickResult,
 };
 use rebook_layout::ReaderFontBlob;
 use rebook_vello_backend::{ReaderCompositor, SpreadSceneCache, frame_images};
@@ -315,6 +316,144 @@ impl WebReaderState {
         Ok(())
     }
 
+    pub fn search(&self, query: &str, max_results: usize) -> Result<JsValue, JsValue> {
+        let reader = self
+            .reader
+            .as_ref()
+            .ok_or_else(|| JsValue::from_str("no book is open"))?;
+        let results = reader
+            .search(query, max_results)
+            .map_err(|e| JsValue::from_str(&e))?;
+        serde_json::to_string(&results)
+            .map(|json| JsValue::from_str(&json))
+            .map_err(|e| JsValue::from_str(&e.to_string()))
+    }
+
+    pub fn set_highlights_json(&mut self, ranges_json: &str) -> Result<(), JsValue> {
+        let ranges: Vec<SourceRange> = serde_json::from_str(ranges_json)
+            .map_err(|e| JsValue::from_str(&format!("invalid source ranges: {e}")))?;
+        let reader = self.reader_mut()?;
+        reader.set_highlights(ranges);
+        Ok(())
+    }
+
+    pub fn clear_highlights(&mut self) -> Result<(), JsValue> {
+        let reader = self.reader_mut()?;
+        reader.clear_highlights();
+        Ok(())
+    }
+
+    pub fn set_focus_json(&mut self, ranges_json: &str) -> Result<(), JsValue> {
+        let ranges: Vec<SourceRange> = serde_json::from_str(ranges_json)
+            .map_err(|e| JsValue::from_str(&format!("invalid source ranges: {e}")))?;
+        let reader = self.reader_mut()?;
+        reader.set_focus_ranges(ranges);
+        Ok(())
+    }
+
+    pub fn clear_focus(&mut self) -> Result<(), JsValue> {
+        let reader = self.reader_mut()?;
+        reader.clear_focus_ranges();
+        Ok(())
+    }
+
+    pub fn style_json(&self) -> Result<JsValue, JsValue> {
+        let reader = self
+            .reader
+            .as_ref()
+            .ok_or_else(|| JsValue::from_str("no book is open"))?;
+        let style = reader.session().style();
+        serde_json::to_string(&style)
+            .map(|json| JsValue::from_str(&json))
+            .map_err(|e| JsValue::from_str(&e.to_string()))
+    }
+
+    pub fn set_style_json(&mut self, style_json: &str) -> Result<(), JsValue> {
+        let style: ReaderStyle = serde_json::from_str(style_json)
+            .map_err(|e| JsValue::from_str(&format!("invalid reader style JSON: {e}")))?;
+        let reader = self.reader_mut()?;
+        reader
+            .set_style(style)
+            .map_err(|e| JsValue::from_str(&e.to_string()))?;
+        self.scene_cache.invalidate_all();
+        Ok(())
+    }
+
+    pub fn set_font_size(&mut self, font_size: f32) -> Result<(), JsValue> {
+        let reader = self.reader_mut()?;
+        let mut style = reader.session().style();
+        style.typography.font_size = font_size;
+        style.typography.normalize();
+        reader
+            .set_style(style)
+            .map_err(|e| JsValue::from_str(&e.to_string()))?;
+        self.scene_cache.invalidate_all();
+        Ok(())
+    }
+
+    pub fn set_line_height(&mut self, line_height: f32) -> Result<(), JsValue> {
+        let reader = self.reader_mut()?;
+        let mut style = reader.session().style();
+        style.typesetting.body_line_height = line_height;
+        style.typesetting.normalize();
+        reader
+            .set_style(style)
+            .map_err(|e| JsValue::from_str(&e.to_string()))?;
+        self.scene_cache.invalidate_all();
+        Ok(())
+    }
+
+    pub fn set_margins(&mut self, horizontal: f32, top: f32, bottom: f32) -> Result<(), JsValue> {
+        let reader = self.reader_mut()?;
+        let mut style = reader.session().style();
+        style.horizontal_margin = horizontal;
+        style.top_margin = top;
+        style.bottom_margin = bottom;
+        reader
+            .set_style(style)
+            .map_err(|e| JsValue::from_str(&e.to_string()))?;
+        self.scene_cache.invalidate_all();
+        Ok(())
+    }
+
+    pub fn set_spread_mode(&mut self, mode: &str) -> Result<(), JsValue> {
+        let reader = self.reader_mut()?;
+        let mut style = reader.session().style();
+        style.spread = match mode {
+            "single" => SpreadMode::Single,
+            "double" => SpreadMode::Double,
+            "scroll" => SpreadMode::Scroll,
+            _ => return Err(JsValue::from_str("invalid spread mode")),
+        };
+        reader
+            .set_style(style)
+            .map_err(|e| JsValue::from_str(&e.to_string()))?;
+        self.scene_cache.invalidate_all();
+        Ok(())
+    }
+
+    pub fn set_colors(&mut self, fg_r: u8, fg_g: u8, fg_b: u8, bg_r: u8, bg_g: u8, bg_b: u8) -> Result<(), JsValue> {
+        let reader = self.reader_mut()?;
+        let mut style = reader.session().style();
+        style.foreground = Rgba {
+            red: fg_r,
+            green: fg_g,
+            blue: fg_b,
+            alpha: 255,
+        };
+        style.background = Rgba {
+            red: bg_r,
+            green: bg_g,
+            blue: bg_b,
+            alpha: 255,
+        };
+        reader
+            .set_style(style)
+            .map_err(|e| JsValue::from_str(&e.to_string()))?;
+        self.scene_cache.invalidate_all();
+        Ok(())
+    }
+
     /// Returns retained-page diagnostics after pagination. This is the first
     /// browser-visible proof that the reader, not just the parser, is active.
     pub fn page_info(&mut self) -> Result<JsValue, JsValue> {
@@ -602,6 +741,54 @@ impl WebReader {
 
     pub fn navigate_toc(&self, id: &str) -> Result<(), JsValue> {
         self.with_inner_mut(|inner| inner.navigate_toc(id))
+    }
+
+    pub fn search(&self, query: &str, max_results: usize) -> Result<JsValue, JsValue> {
+        self.with_inner(|inner| inner.search(query, max_results))
+    }
+
+    pub fn set_highlights_json(&self, ranges_json: &str) -> Result<(), JsValue> {
+        self.with_inner_mut(|inner| inner.set_highlights_json(ranges_json))
+    }
+
+    pub fn clear_highlights(&self) -> Result<(), JsValue> {
+        self.with_inner_mut(WebReaderState::clear_highlights)
+    }
+
+    pub fn set_focus_json(&self, ranges_json: &str) -> Result<(), JsValue> {
+        self.with_inner_mut(|inner| inner.set_focus_json(ranges_json))
+    }
+
+    pub fn clear_focus(&self) -> Result<(), JsValue> {
+        self.with_inner_mut(WebReaderState::clear_focus)
+    }
+
+    pub fn style_json(&self) -> Result<JsValue, JsValue> {
+        self.with_inner(WebReaderState::style_json)
+    }
+
+    pub fn set_style_json(&self, style_json: &str) -> Result<(), JsValue> {
+        self.with_inner_mut(|inner| inner.set_style_json(style_json))
+    }
+
+    pub fn set_font_size(&self, font_size: f32) -> Result<(), JsValue> {
+        self.with_inner_mut(|inner| inner.set_font_size(font_size))
+    }
+
+    pub fn set_line_height(&self, line_height: f32) -> Result<(), JsValue> {
+        self.with_inner_mut(|inner| inner.set_line_height(line_height))
+    }
+
+    pub fn set_margins(&self, horizontal: f32, top: f32, bottom: f32) -> Result<(), JsValue> {
+        self.with_inner_mut(|inner| inner.set_margins(horizontal, top, bottom))
+    }
+
+    pub fn set_spread_mode(&self, mode: &str) -> Result<(), JsValue> {
+        self.with_inner_mut(|inner| inner.set_spread_mode(mode))
+    }
+
+    pub fn set_colors(&self, fg_r: u8, fg_g: u8, fg_b: u8, bg_r: u8, bg_g: u8, bg_b: u8) -> Result<(), JsValue> {
+        self.with_inner_mut(|inner| inner.set_colors(fg_r, fg_g, fg_b, bg_r, bg_g, bg_b))
     }
 
     pub fn page_info(&self) -> Result<JsValue, JsValue> {

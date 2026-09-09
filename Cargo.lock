@@ -4097,6 +4097,9 @@ dependencies = [
  "rebook-publication",
  "rebook-reader",
  "rebook-renderer",
+ "regex",
+ "serde",
+ "serde_json",
  "thiserror 2.0.19",
  "web-time",
 ]

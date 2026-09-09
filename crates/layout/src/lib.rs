@@ -95,7 +95,8 @@ impl LayoutViewport {
 }
 
 /// User-controlled values that invalidate pagination.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct ReaderStyle {
     pub typography: ReaderTypography,
     pub typesetting: ReaderTypesetting,
@@ -445,7 +446,8 @@ impl Default for ReaderTypography {
 }
 
 /// Maximum number of book pages shown in one viewport.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
 pub enum SpreadMode {
     /// Always paginate as one page per viewport.
     #[default]

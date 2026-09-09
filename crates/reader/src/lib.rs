@@ -931,6 +931,10 @@ impl ReaderSession {
         self.source.book()
     }
 
+    pub fn source(&self) -> &dyn BookSource {
+        self.source.as_ref()
+    }
+
     pub fn viewport(&self) -> LayoutViewport {
         self.viewport
     }

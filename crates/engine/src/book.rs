@@ -27,4 +27,8 @@ impl EngineBook {
     pub fn cover_bytes(&self) -> Option<&[u8]> {
         self.opened.cover_bytes()
     }
+
+    pub fn search(&self, query: &str, max_results: usize) -> Result<Vec<crate::SearchResult>, String> {
+        crate::search_book(self.source().as_ref(), query, max_results)
+    }
 }

@@ -1,6 +1,7 @@
 mod book;
 mod config;
 mod error;
+pub mod features;
 pub mod frame;
 mod reader;
 pub mod transition;
@@ -15,13 +16,19 @@ use rebook_layout::ReaderFontBlob;
 pub use book::EngineBook;
 pub use config::{EngineConfig, ReaderConfig};
 pub use error::EngineError;
+pub use features::{Bookmark, Highlight, HighlightColor, SearchResult, search_book};
 pub use frame::{FrameTransition, OverlaySet, PageFrameKey, PreparedReaderFrame, SpreadFrameKey};
 pub use reader::{EngineAnimationState, EngineNavigationState, EngineReader};
-pub use rebook_publication::LocatorV1;
+pub use rebook_layout::{
+    LayoutViewport, ReaderDefaultFont, ReaderFontChoice, ReaderStyle, ReaderTypography,
+    ReaderTypesetting, SpreadMode, TypesettingMode,
+};
+pub use rebook_publication::{LocatorV1, Rgba, SourceRange};
 pub use rebook_reader::{
     NavigationAttempt, NavigationOutcome, NavigationPreparation, NavigationResult, NavigationToken,
-    PageDirection, PreparedNavigation, ReaderError, ReaderPosition, ReaderSession, ReaderSnapshot,
-    ReaderSpread, TickResult, TocViewItem,
+    PageDirection, PreparedNavigation, ReaderError, ReaderPosition, ReaderSelection,
+    ReaderSelectionRect, ReaderSession, ReaderSnapshot, ReaderSpread, SelectionGranularity,
+    TickResult, TocViewItem,
 };
 pub use transition::PointerGestureResult;
 
@@ -102,8 +109,8 @@ mod tests {
     use rebook_layout::{LayoutViewport, ReaderStyle};
     use rebook_publication::{
         Block, BlockStyle, Book, BookSource, Inline, Metadata, PublicationError, PublicationId,
-        PublicationUrl, Resource, Section, SpineItem, SpineItemId, TextBlock, TextBlockKind,
-        TextRun, TextStyle,
+        PublicationUrl, Resource, Section, SourceAnchor, SpineItem, SpineItemId, TextBlock,
+        TextBlockKind, TextRun, TextStyle,
     };
     use std::sync::Arc;
 
@@ -308,5 +315,60 @@ mod tests {
             reader.frame().unwrap().transition,
             FrameTransition::None
         ));
+    }
+
+    #[test]
+    fn test_search_and_highlights() {
+        let mut source_inner = InMemorySource::new();
+        let spine_id = source_inner.book.sections[0].id.clone();
+        source_inner.section.blocks = vec![Block::Text(TextBlock {
+            kind: TextBlockKind::Paragraph,
+            source: Some(SourceRange {
+                start: SourceAnchor {
+                    spine: spine_id.clone(),
+                    node: String::new(),
+                    text_offset: 0,
+                },
+                end: SourceAnchor {
+                    spine: spine_id,
+                    node: String::new(),
+                    text_offset: 44,
+                },
+            }),
+            content: vec![Inline::Text(TextRun {
+                text: "The quick brown fox jumps over the lazy dog.".into(),
+                style: TextStyle::default(),
+                link: None,
+            })],
+            style: BlockStyle::default(),
+        })];
+
+        let source = Arc::new(source_inner);
+        let session = ReaderSession::open_with_fonts(
+            source,
+            LayoutViewport {
+                width: 300,
+                height: 400,
+            },
+            ReaderStyle::default(),
+            Arc::default(),
+        )
+        .unwrap();
+        let mut reader = EngineReader::new(session);
+
+        let results = reader.search("brown fox", 10).unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].matched_text, "brown fox");
+        assert_eq!(results[0].section_index, 0);
+
+        let range = results[0].range.clone();
+        reader.set_highlights(vec![range.clone()]);
+        assert_eq!(reader.highlights(), &[range.clone()]);
+
+        let frame = reader.frame().unwrap();
+        assert_eq!(frame.overlays.highlights, vec![range]);
+
+        reader.clear_highlights();
+        assert!(reader.highlights().is_empty());
     }
 }

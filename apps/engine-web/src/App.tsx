@@ -4,8 +4,9 @@ import { ReaderCanvas } from "./ReaderCanvas";
 export function App() {
     const [bookName, setBookName] = useState("No book loaded");
     const [bookBytes, setBookBytes] = useState<Uint8Array | undefined>();
+    const [zenMode, setZenMode] = useState(false);
     return (
-        <main className="app">
+        <main className={`app ${zenMode ? "zen-mode" : ""}`}>
             <header>
                 <div>
                     <span className="eyebrow">TORTO ENGINE LAB</span>
@@ -29,7 +30,12 @@ export function App() {
                 </label>
             </header>
             <section className="reader">
-                <ReaderCanvas bytes={bookBytes} fileName={bookName} />
+                <ReaderCanvas
+                    bytes={bookBytes}
+                    fileName={bookName}
+                    zenMode={zenMode}
+                    onToggleZenMode={() => setZenMode((zen) => !zen)}
+                />
                 <div className="hud">
                     <span>{bookName}</span>
                     <span>Rust engine / WASM / WebGPU</span>

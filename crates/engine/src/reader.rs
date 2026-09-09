@@ -15,6 +15,8 @@ pub struct EngineReader {
     pointer_gesture: PointerGestureController,
     selection_anchor: Option<ReaderTextHit>,
     selection: Option<ReaderSelection>,
+    highlights: Vec<rebook_publication::SourceRange>,
+    focus_ranges: Vec<rebook_publication::SourceRange>,
     overlay_revision: u64,
     interactive_navigation: Option<InteractiveNavigation>,
 }
@@ -57,6 +59,8 @@ impl EngineReader {
             pointer_gesture: PointerGestureController::default(),
             selection_anchor: None,
             selection: None,
+            highlights: Vec::new(),
+            focus_ranges: Vec::new(),
             overlay_revision: 0,
             interactive_navigation: None,
         }
@@ -552,11 +556,12 @@ impl EngineReader {
             content_revision: layout_generation,
             overlay_revision: self.overlay_revision,
             overlays: crate::frame::OverlaySet {
+                highlights: self.highlights.clone(),
                 selection: self
                     .selection
                     .as_ref()
                     .map_or_else(Vec::new, |selection| selection.ranges.clone()),
-                ..crate::frame::OverlaySet::default()
+                focus: self.focus_ranges.clone(),
             },
             current_spread,
             destination_spread,
@@ -566,12 +571,48 @@ impl EngineReader {
         })
     }
 
+    pub fn set_highlights(&mut self, highlights: Vec<rebook_publication::SourceRange>) {
+        if self.highlights != highlights {
+            self.highlights = highlights;
+            self.overlay_revision = self.overlay_revision.wrapping_add(1);
+        }
+    }
+
+    pub fn highlights(&self) -> &[rebook_publication::SourceRange] {
+        &self.highlights
+    }
+
+    pub fn clear_highlights(&mut self) {
+        if !self.highlights.is_empty() {
+            self.highlights.clear();
+            self.overlay_revision = self.overlay_revision.wrapping_add(1);
+        }
+    }
+
+    pub fn set_focus_ranges(&mut self, focus: Vec<rebook_publication::SourceRange>) {
+        if self.focus_ranges != focus {
+            self.focus_ranges = focus;
+            self.overlay_revision = self.overlay_revision.wrapping_add(1);
+        }
+    }
+
+    pub fn clear_focus_ranges(&mut self) {
+        if !self.focus_ranges.is_empty() {
+            self.focus_ranges.clear();
+            self.overlay_revision = self.overlay_revision.wrapping_add(1);
+        }
+    }
+
     pub fn session(&self) -> &ReaderSession {
         &self.session
     }
 
     pub fn toc_items(&self) -> &[rebook_reader::TocViewItem] {
         self.session.toc_items()
+    }
+
+    pub fn search(&self, query: &str, max_results: usize) -> Result<Vec<crate::SearchResult>, String> {
+        crate::search_book(self.session.source(), query, max_results)
     }
 
     pub fn session_mut(&mut self) -> &mut ReaderSession {
