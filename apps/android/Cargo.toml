@@ -1,0 +1,16 @@
+[package]
+name = "rebook-android-host"
+description = "Android-ready native host boundary for the Torto reader engine"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+rebook-engine = { path = "../../crates/engine" }
+
+[lints]
+workspace = true

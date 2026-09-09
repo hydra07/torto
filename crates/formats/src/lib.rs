@@ -4,17 +4,34 @@
 //! retains its archive-backed source, while MOBI/KF8, FB2, and CBZ construct
 //! their publication descriptors, lazy sections, and resources directly.
 
+#[cfg(feature = "cbz")]
 mod cbz;
+#[cfg(feature = "chm")]
 mod chm;
+#[cfg(feature = "epub")]
 mod epub;
+#[cfg(feature = "fb2")]
 mod fb2;
+#[cfg(feature = "mobi")]
 mod kf8;
+#[cfg(feature = "mobi")]
 mod mobi;
+#[cfg(feature = "pdf")]
 mod pdf;
+#[cfg(any(
+    feature = "epub",
+    feature = "mobi",
+    feature = "fb2",
+    feature = "cbz",
+    feature = "chm",
+    feature = "pdf"
+))]
 mod source;
+#[cfg(any(feature = "mobi", feature = "fb2", feature = "cbz"))]
 mod xml;
 
 use std::fmt;
+#[cfg(not(target_arch = "wasm32"))]
 use std::fs;
 use std::path::Path;
 use std::sync::Arc;
@@ -22,8 +39,10 @@ use std::sync::Arc;
 use rebook_publication::{Book, BookSource, PublicationError};
 use thiserror::Error;
 
+#[cfg(feature = "epub")]
 use self::epub::{EpubError, EpubPublication};
 
+#[cfg(feature = "pdf")]
 pub use self::pdf::cjk_fallback_font_bytes;
 
 /// E-book formats supported by the desktop application.
@@ -124,11 +143,13 @@ impl OpenedPublication {
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 /// Opens a supported local e-book file.
 pub fn open_file(path: impl AsRef<Path>) -> Result<OpenedPublication, FormatError> {
     open_file_with_options(path, true, None)
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 /// Opens a shelf-managed book without reloading its cover or recomputing the
 /// content-derived PDF identity established during import.
 pub fn open_file_for_reading(
@@ -138,11 +159,14 @@ pub fn open_file_for_reading(
     open_file_with_options(path, false, known_publication_id)
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 fn open_file_with_options(
     path: impl AsRef<Path>,
     load_cover: bool,
     known_publication_id: Option<&str>,
 ) -> Result<OpenedPublication, FormatError> {
+    #[cfg(not(feature = "pdf"))]
+    let _ = known_publication_id;
     let path = path.as_ref();
     let file_name = path
         .file_name()
@@ -151,7 +175,9 @@ fn open_file_with_options(
     let format = BookFormat::from_file_name(file_name)
         .ok_or_else(|| FormatError::UnsupportedFormat(file_name.to_owned()))?;
     let source: Arc<dyn BookSource> = match format {
+        #[cfg(feature = "chm")]
         BookFormat::Chm => Arc::new(chm::open_path(path, file_name)?),
+        #[cfg(feature = "pdf")]
         BookFormat::Pdf => {
             let bytes = fs::read(path)?;
             Arc::new(if let Some(publication_id) = known_publication_id {
@@ -174,31 +200,65 @@ pub fn open_bytes(
         .ok_or_else(|| FormatError::UnsupportedFormat(file_name.to_owned()))?;
     let bytes = bytes.into();
     let source = match format {
+        #[cfg(feature = "chm")]
         BookFormat::Chm => {
             Arc::new(chm::open_bytes(bytes.as_ref(), file_name)?) as Arc<dyn BookSource>
         }
+        #[cfg(feature = "pdf")]
         BookFormat::Pdf => Arc::new(pdf::open_shared(bytes, file_name)?) as Arc<dyn BookSource>,
         _ => open_shared_source(bytes, file_name, format)?,
     };
     Ok(finish_open(format, source, true))
 }
 
+#[cfg(any(
+    feature = "epub",
+    feature = "mobi",
+    feature = "fb2",
+    feature = "cbz",
+    feature = "chm",
+    feature = "pdf"
+))]
 fn open_shared_source(
     bytes: Arc<[u8]>,
     file_name: &str,
     format: BookFormat,
 ) -> Result<Arc<dyn BookSource>, FormatError> {
     let source: Arc<dyn BookSource> = match format {
+        #[cfg(feature = "epub")]
         BookFormat::Epub => Arc::new(EpubPublication::open_bytes(bytes)?),
+        #[cfg(feature = "mobi")]
         BookFormat::Mobi | BookFormat::Azw | BookFormat::Azw3 => {
             Arc::new(mobi::open(bytes.as_ref(), file_name, format)?)
         }
+        #[cfg(feature = "fb2")]
         BookFormat::Fb2 | BookFormat::Fbz => Arc::new(fb2::open(bytes.as_ref(), file_name)?),
+        #[cfg(feature = "cbz")]
         BookFormat::Cbz => Arc::new(cbz::open(bytes.as_ref(), file_name)?),
+        #[cfg(feature = "chm")]
         BookFormat::Chm => Arc::new(chm::open_bytes(bytes.as_ref(), file_name)?),
+        #[cfg(feature = "pdf")]
         BookFormat::Pdf => unreachable!("PDF bytes use the zero-copy owned/shared paths"),
+        #[allow(unreachable_patterns)]
+        _ => return Err(FormatError::UnsupportedFormat(file_name.to_owned())),
     };
     Ok(source)
+}
+
+#[cfg(not(any(
+    feature = "epub",
+    feature = "mobi",
+    feature = "fb2",
+    feature = "cbz",
+    feature = "chm",
+    feature = "pdf"
+)))]
+fn open_shared_source(
+    _bytes: Arc<[u8]>,
+    file_name: &str,
+    _format: BookFormat,
+) -> Result<Arc<dyn BookSource>, FormatError> {
+    Err(FormatError::UnsupportedFormat(file_name.to_owned()))
 }
 
 fn finish_open(
@@ -228,6 +288,7 @@ pub enum FormatError {
     Epub(String),
     #[error(transparent)]
     Publication(#[from] PublicationError),
+    #[cfg(any(feature = "epub", feature = "fb2", feature = "cbz"))]
     #[error(transparent)]
     Zip(#[from] zip::result::ZipError),
     #[error("不支持的电子书格式：{0}")]
@@ -236,12 +297,14 @@ pub enum FormatError {
     Conversion { format: BookFormat, message: String },
 }
 
+#[cfg(feature = "epub")]
 impl From<EpubError> for FormatError {
     fn from(error: EpubError) -> Self {
         Self::Epub(error.to_string())
     }
 }
 
+#[cfg(any(feature = "mobi", feature = "fb2", feature = "cbz", feature = "pdf"))]
 pub(crate) fn conversion_error(format: BookFormat, error: impl fmt::Display) -> FormatError {
     FormatError::Conversion {
         format,

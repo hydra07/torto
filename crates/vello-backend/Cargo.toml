@@ -1,0 +1,21 @@
+[package]
+name = "rebook-vello-backend"
+description = "Reusable Vello scene compositor for rebook reader frames"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+rebook-engine = { path = "../engine", default-features = false }
+rebook-renderer = { path = "../renderer" }
+anyrender.workspace = true
+bytemuck = { workspace = true, features = ["derive"] }
+glam.workspace = true
+kurbo.workspace = true
+peniko.workspace = true
+vello.workspace = true
+wgpu = { workspace = true }
+
+[lints]
+workspace = true

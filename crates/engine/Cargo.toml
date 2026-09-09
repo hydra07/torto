@@ -1,0 +1,28 @@
+[package]
+name = "rebook-engine"
+description = "Platform-neutral reader engine facade"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[features]
+default = ["formats-full"]
+formats-full = ["rebook-formats/all-formats"]
+epub = ["rebook-formats/epub"]
+web-epub = ["epub"]
+
+[dependencies]
+rebook-formats = { path = "../formats", default-features = false }
+rebook-layout = { path = "../layout" }
+rebook-publication = { path = "../publication" }
+rebook-reader = { path = "../reader" }
+rebook-renderer = { path = "../renderer" }
+regex.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+web-time.workspace = true
+
+[lints]
+workspace = true

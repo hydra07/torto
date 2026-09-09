@@ -1,0 +1,35 @@
+[package]
+name = "rebook-engine-wasm"
+description = "WebAssembly + WebGPU bindings for the rebook engine"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+anyrender.workspace = true
+anyrender_vello_cpu.workspace = true
+rebook-engine = { path = "../engine", default-features = false, features = ["web-epub"] }
+rebook-layout = { path = "../layout" }
+rebook-renderer = { path = "../renderer" }
+rebook-vello-backend = { path = "../vello-backend" }
+serde_json.workspace = true
+wasm-bindgen.workspace = true
+wasm-bindgen-futures.workspace = true
+bytemuck.workspace = true
+glam.workspace = true
+kurbo.workspace = true
+peniko.workspace = true
+vello.workspace = true
+wgpu = { workspace = true, features = ["webgpu"] }
+web-sys = { workspace = true, features = ["CanvasRenderingContext2d", "GpuCanvasContext", "HtmlCanvasElement", "ImageData"] }
+console_error_panic_hook = "0.1.7"
+
+[lints]
+workspace = true
+
+[package.metadata.wasm-pack.profile.release]
+wasm-opt = false

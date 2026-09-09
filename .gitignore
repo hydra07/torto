@@ -1,4 +1,5 @@
 /target/
+/.build/
 /test-data/
 /dist/
 /tmp/
@@ -6,3 +7,9 @@
 *.profraw
 .DS_Store
 watchexec-preview*.log
+node_modules/
+/apps/engine-web/dist/
+/apps/engine-web/pkg/
+*.pem
+*.key
+*.crt
