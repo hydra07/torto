@@ -13,6 +13,7 @@ rebook-renderer = { path = "../renderer" }
 sentencex.workspace = true
 thiserror.workspace = true
 unicode-segmentation.workspace = true
+web-time.workspace = true
 
 [lints]
 workspace = true

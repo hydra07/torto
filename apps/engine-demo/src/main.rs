@@ -4,7 +4,6 @@ mod commands;
 pub mod metrics;
 pub mod render;
 pub mod surface;
-pub mod transition;
 
 use std::env;
 use std::process;

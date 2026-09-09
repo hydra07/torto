@@ -28,7 +28,7 @@ pub enum Command {
         metrics: Option<MetricsFormat>,
         metrics_file: Option<PathBuf>,
         profile: ResourceProfile,
-        transition: Option<crate::transition::TransitionKind>,
+        transition: Option<rebook_engine::transition::TransitionKind>,
     },
 }
 
@@ -203,8 +203,12 @@ where
                 } else if arg == "--transition" {
                     let val = iter.next().ok_or("Missing value for --transition")?;
                     match val.to_lowercase().as_str() {
-                        "none" => transition = Some(crate::transition::TransitionKind::None),
-                        "slide" => transition = Some(crate::transition::TransitionKind::Slide),
+                        "none" => {
+                            transition = Some(rebook_engine::transition::TransitionKind::None)
+                        }
+                        "slide" => {
+                            transition = Some(rebook_engine::transition::TransitionKind::Slide)
+                        }
                         other => {
                             return Err(format!(
                                 "Invalid --transition: {other}. Expected none or slide"
@@ -317,7 +321,7 @@ mod tests {
                 metrics: Some(MetricsFormat::Text),
                 metrics_file: Some(PathBuf::from("/tmp/metrics.txt")),
                 profile: ResourceProfile::Balanced,
-                transition: Some(crate::transition::TransitionKind::Slide),
+                transition: Some(rebook_engine::transition::TransitionKind::Slide),
             }
         );
     }

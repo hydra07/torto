@@ -1,15 +1,59 @@
 use std::collections::HashMap;
+#[cfg(any(
+    feature = "mobi",
+    feature = "fb2",
+    feature = "cbz",
+    feature = "pdf",
+    test
+))]
 use std::sync::Arc;
 
+#[cfg(any(
+    feature = "mobi",
+    feature = "fb2",
+    feature = "cbz",
+    feature = "pdf",
+    test
+))]
 use rebook_html::parse_section;
+#[cfg(any(
+    feature = "mobi",
+    feature = "fb2",
+    feature = "cbz",
+    feature = "pdf",
+    test
+))]
+use rebook_publication::PublicationUrl;
+use rebook_publication::{Block, Inline, Section, TextBlock, TextBlockKind, TocEntry};
+#[cfg(any(
+    feature = "mobi",
+    feature = "fb2",
+    feature = "cbz",
+    feature = "pdf",
+    test
+))]
 use rebook_publication::{
-    Block, Book, BookSource, ImageBlock, ImageStyle, Inline, Metadata, PublicationError,
-    PublicationId, PublicationUrl, RenditionLayout, Resource, Section, SpineItem, SpineItemId,
-    TableOfContentsOrigin, TextBlock, TextBlockKind, TocEntry, promote_single_toc_root,
+    Book, BookSource, ImageBlock, ImageStyle, Metadata, PublicationError, PublicationId,
+    RenditionLayout, Resource, SpineItem, SpineItemId, TableOfContentsOrigin,
+    promote_single_toc_root,
 };
 
+#[cfg(any(
+    feature = "mobi",
+    feature = "fb2",
+    feature = "cbz",
+    feature = "pdf",
+    test
+))]
 use crate::{BookFormat, FormatError, conversion_error};
 
+#[cfg(any(
+    feature = "mobi",
+    feature = "fb2",
+    feature = "cbz",
+    feature = "pdf",
+    test
+))]
 pub(crate) struct SourceBook {
     pub id: String,
     pub metadata: Metadata,
@@ -19,23 +63,51 @@ pub(crate) struct SourceBook {
     pub cover_path: Option<String>,
 }
 
+#[cfg(any(
+    feature = "mobi",
+    feature = "fb2",
+    feature = "cbz",
+    feature = "pdf",
+    test
+))]
 pub(crate) struct SourceSection {
     pub title: String,
     pub content: SectionContent,
     pub linear: bool,
 }
 
+#[cfg(any(
+    feature = "mobi",
+    feature = "fb2",
+    feature = "cbz",
+    feature = "pdf",
+    test
+))]
 pub(crate) enum SectionContent {
     Html(String),
     Image { resource_path: String, alt: String },
 }
 
+#[cfg(any(
+    feature = "mobi",
+    feature = "fb2",
+    feature = "cbz",
+    feature = "pdf",
+    test
+))]
 pub(crate) struct SourceResource {
     pub path: String,
     pub media_type: String,
     pub bytes: Vec<u8>,
 }
 
+#[cfg(any(
+    feature = "mobi",
+    feature = "fb2",
+    feature = "cbz",
+    feature = "pdf",
+    test
+))]
 #[derive(Clone)]
 pub(crate) struct SourceTocEntry {
     pub label: String,
@@ -43,6 +115,13 @@ pub(crate) struct SourceTocEntry {
     pub children: Vec<SourceTocEntry>,
 }
 
+#[cfg(any(
+    feature = "mobi",
+    feature = "fb2",
+    feature = "cbz",
+    feature = "pdf",
+    test
+))]
 pub(crate) struct DirectBookSource {
     book: Book,
     table_of_contents_origin: TableOfContentsOrigin,
@@ -361,12 +440,26 @@ fn normalize_heading_text(text: &str) -> String {
         .to_lowercase()
 }
 
+#[cfg(any(
+    feature = "mobi",
+    feature = "fb2",
+    feature = "cbz",
+    feature = "pdf",
+    test
+))]
 struct StoredResource {
     href: PublicationUrl,
     media_type: String,
     bytes: Arc<[u8]>,
 }
 
+#[cfg(any(
+    feature = "mobi",
+    feature = "fb2",
+    feature = "cbz",
+    feature = "pdf",
+    test
+))]
 impl DirectBookSource {
     pub(crate) fn open(book: SourceBook, format: BookFormat) -> Result<Self, FormatError> {
         let mut descriptors = Vec::with_capacity(book.sections.len());
@@ -451,6 +544,13 @@ impl DirectBookSource {
     }
 }
 
+#[cfg(any(
+    feature = "mobi",
+    feature = "fb2",
+    feature = "cbz",
+    feature = "pdf",
+    test
+))]
 impl BookSource for DirectBookSource {
     fn book(&self) -> &Book {
         &self.book
@@ -513,6 +613,13 @@ impl BookSource for DirectBookSource {
     }
 }
 
+#[cfg(any(
+    feature = "mobi",
+    feature = "fb2",
+    feature = "cbz",
+    feature = "pdf",
+    test
+))]
 fn parse_toc_entry(entry: SourceTocEntry) -> Result<TocEntry, PublicationError> {
     Ok(TocEntry {
         label: entry.label,
@@ -525,6 +632,7 @@ fn parse_toc_entry(entry: SourceTocEntry) -> Result<TocEntry, PublicationError> 
     })
 }
 
+#[cfg(any(feature = "mobi", feature = "fb2", test))]
 pub(crate) fn escape_text(value: &str) -> String {
     value
         .replace('&', "&amp;")
@@ -532,6 +640,7 @@ pub(crate) fn escape_text(value: &str) -> String {
         .replace('>', "&gt;")
 }
 
+#[cfg(any(feature = "mobi", test))]
 pub(crate) fn escape_attribute(value: &str) -> String {
     escape_text(value)
         .replace('"', "&quot;")

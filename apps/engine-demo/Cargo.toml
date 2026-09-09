@@ -9,6 +9,7 @@ license.workspace = true
 [dependencies]
 anyrender.workspace = true
 bytemuck.workspace = true
+glam.workspace = true
 image.workspace = true
 kurbo.workspace = true
 peniko.workspace = true
@@ -18,6 +19,7 @@ rebook-layout = { path = "../../crates/layout" }
 rebook-publication = { path = "../../crates/publication" }
 rebook-reader = { path = "../../crates/reader" }
 rebook-renderer = { path = "../../crates/renderer" }
+rebook-vello-backend = { path = "../../crates/vello-backend" }
 thiserror.workspace = true
 serde.workspace = true
 serde_json.workspace = true
@@ -27,3 +29,12 @@ winit.workspace = true
 
 [lints]
 workspace = true
+
+[target.'cfg(target_os = "windows")'.dependencies]
+wgpu = { workspace = true, features = ["dx12", "vulkan"] }
+
+[target.'cfg(any(target_os = "macos", target_os = "ios"))'.dependencies]
+wgpu = { workspace = true, features = ["metal"] }
+
+[target.'cfg(any(target_os = "linux", target_os = "android"))'.dependencies]
+wgpu = { workspace = true, features = ["vulkan", "gles"] }

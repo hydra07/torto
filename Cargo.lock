@@ -193,6 +193,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "anyrender_vello_cpu"
+version = "0.16.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "dfcae178cb9738b1e74d21db66c0e269f6d9c146d6e45bde66674cb1b8dcd062"
+dependencies = [
+ "anyrender",
+ "debug_timer",
+ "glifo 0.2.0",
+ "kurbo",
+ "peniko",
+ "vello_common 0.1.0",
+ "vello_cpu 0.1.0",
+]
+
+[[package]]
 name = "apple-native-keyring-store"
 version = "1.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -757,6 +772,8 @@ version = "0.13.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "af491d569909a7e4dee0ad7db7f5341fef5c614d5b8ec8cf765732aba3cff681"
 dependencies = [
+ "serde",
+ "termcolor",
  "unicode-width",
 ]
 
@@ -798,6 +815,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4ca0197aee26d1ae37445ee532fefce43251d24cc7c166799f4d46817f1d3973"
 dependencies = [
  "crossbeam-utils",
+]
+
+[[package]]
+name = "console_error_panic_hook"
+version = "0.1.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a06aeb73f470f66dcdbf7223caeebb85984942f22f1adb2a088cf9668146bbbc"
+dependencies = [
+ "cfg-if",
+ "wasm-bindgen",
 ]
 
 [[package]]
@@ -957,6 +984,12 @@ name = "data-url"
 version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "be1e0bca6c3637f992fc1cc7cbc52a78c1ef6db076dbf1059c4323d6a2048376"
+
+[[package]]
+name = "debug_timer"
+version = "0.1.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "da220af51a1a335e9a930beaaef53d261e41ea9eecfb3d973a3ddae1a7284b9c"
 
 [[package]]
 name = "derive_more"
@@ -1729,6 +1762,12 @@ dependencies = [
  "log",
  "xml-rs",
 ]
+
+[[package]]
+name = "glam"
+version = "0.33.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e762b9b188634fc508d4ec54b62ea3d352c43fd431d18d05d46f559f217f4725"
 
 [[package]]
 name = "glifo"
@@ -4059,6 +4098,7 @@ dependencies = [
  "rebook-reader",
  "rebook-renderer",
  "thiserror 2.0.19",
+ "web-time",
 ]
 
 [[package]]
@@ -4067,6 +4107,7 @@ version = "0.5.0"
 dependencies = [
  "anyrender",
  "bytemuck",
+ "glam",
  "image",
  "kurbo",
  "peniko",
@@ -4076,12 +4117,36 @@ dependencies = [
  "rebook-publication",
  "rebook-reader",
  "rebook-renderer",
+ "rebook-vello-backend",
  "serde",
  "serde_json",
  "thiserror 2.0.19",
  "vello",
  "wgpu",
  "winit",
+]
+
+[[package]]
+name = "rebook-engine-wasm"
+version = "0.5.0"
+dependencies = [
+ "anyrender",
+ "anyrender_vello_cpu",
+ "bytemuck",
+ "console_error_panic_hook",
+ "glam",
+ "kurbo",
+ "peniko",
+ "rebook-engine",
+ "rebook-layout",
+ "rebook-renderer",
+ "rebook-vello-backend",
+ "serde_json",
+ "vello",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "web-sys",
+ "wgpu",
 ]
 
 [[package]]
@@ -4182,6 +4247,7 @@ dependencies = [
  "sentencex",
  "thiserror 2.0.19",
  "unicode-segmentation",
+ "web-time",
 ]
 
 [[package]]
@@ -4194,6 +4260,21 @@ dependencies = [
  "peniko",
  "rebook-layout",
  "rebook-publication",
+]
+
+[[package]]
+name = "rebook-vello-backend"
+version = "0.5.0"
+dependencies = [
+ "anyrender",
+ "bytemuck",
+ "glam",
+ "kurbo",
+ "peniko",
+ "rebook-engine",
+ "rebook-renderer",
+ "vello",
+ "wgpu",
 ]
 
 [[package]]
@@ -5196,6 +5277,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "termcolor"
+version = "1.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "06794f8f6c5c898b3275aebefa6b8a1cb24cd2c6c79397ab15774837a0bc5755"
+dependencies = [
+ "winapi-util",
+]
+
+[[package]]
 name = "thiserror"
 version = "1.0.69"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5743,6 +5833,7 @@ dependencies = [
  "guillotiere",
  "log",
  "peniko",
+ "png 0.18.1",
  "smallvec",
  "thiserror 2.0.19",
 ]
@@ -6106,6 +6197,7 @@ dependencies = [
  "hashbrown 0.16.1",
  "js-sys",
  "log",
+ "naga",
  "parking_lot",
  "portable-atomic",
  "profiling",

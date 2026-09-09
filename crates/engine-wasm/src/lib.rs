@@ -1,0 +1,719 @@
+//! Platform-neutral WebAssembly compositor building blocks.
+//!
+//! The browser adapter is intentionally kept thin: these modules contain no
+//! DOM ownership and can be exercised by a future `wasm-bindgen` facade.
+
+mod cpu_surface;
+pub mod surface;
+
+use std::cell::RefCell;
+use std::sync::Arc;
+use std::time::Duration;
+
+use cpu_surface::CpuSurfaceRenderer;
+use rebook_engine::{
+    Engine, EngineAnimationState, EngineConfig, EngineNavigationState, EngineReader, LocatorV1,
+    PageDirection, PointerGestureResult, ReaderConfig, TickResult,
+};
+use rebook_layout::ReaderFontBlob;
+use rebook_vello_backend::{ReaderCompositor, SpreadSceneCache, frame_images};
+use surface::GpuSurfaceRenderer;
+use wasm_bindgen::prelude::*;
+use web_sys::HtmlCanvasElement;
+
+/// Thin browser-facing facade. Parsing and pagination stay in the Rust engine;
+/// JavaScript only supplies bytes and viewport events.
+struct WebReaderState {
+    engine: Engine,
+    reader: Option<EngineReader>,
+    viewport: (u32, u32),
+    renderer: Option<BrowserRenderer>,
+    scene_cache: SpreadSceneCache,
+}
+
+enum BrowserRenderer {
+    Gpu(GpuSurfaceRenderer),
+    Cpu(CpuSurfaceRenderer),
+}
+
+impl Default for WebReaderState {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl WebReaderState {
+    pub fn new() -> Self {
+        console_error_panic_hook::set_once();
+        Self {
+            engine: web_engine(),
+            reader: None,
+            viewport: (1200, 760),
+            renderer: None,
+            scene_cache: SpreadSceneCache::new(5),
+        }
+    }
+
+    /// Creates a reader with an initialized WebGPU surface.
+    ///
+    /// This is a static async constructor rather than an async `&mut self`
+    /// method. Exporting an async mutable method would keep wasm-bindgen's
+    /// exclusive borrow guard alive across the Promise and reject subsequent
+    /// `tick`, navigation, and render calls as recursive aliasing.
+    pub async fn create(canvas: HtmlCanvasElement) -> Result<WebReaderState, JsValue> {
+        let renderer = match GpuSurfaceRenderer::new(canvas.clone()).await {
+            Ok(renderer) => BrowserRenderer::Gpu(renderer),
+            Err(gpu_error) => {
+                BrowserRenderer::Cpu(CpuSurfaceRenderer::new(canvas).map_err(|cpu_error| {
+                    JsValue::from_str(&format!(
+                        "GPU initialization failed ({gpu_error}); CPU fallback failed ({cpu_error})"
+                    ))
+                })?)
+            }
+        };
+        let mut reader = Self::new();
+        reader.renderer = Some(renderer);
+        Ok(reader)
+    }
+
+    pub fn renderer_kind(&self) -> String {
+        match self.renderer {
+            Some(BrowserRenderer::Gpu(_)) => "webgpu",
+            Some(BrowserRenderer::Cpu(_)) => "cpu",
+            None => "none",
+        }
+        .to_owned()
+    }
+
+    /// Opens bytes through the same format dispatcher used by native clients.
+    /// Returns a small JSON metadata object for the UI shell.
+    pub fn open_bytes(
+        &mut self,
+        bytes: &[u8],
+        file_name: &str,
+        width: u32,
+        height: u32,
+    ) -> Result<JsValue, JsValue> {
+        self.close();
+        self.viewport = (width, height);
+        let book = self
+            .engine
+            .open_bytes(Arc::<[u8]>::from(bytes), file_name)
+            .map_err(|e| JsValue::from_str(&e.to_string()))?;
+        let metadata = book.source().book().metadata.clone();
+        let reader = self
+            .engine
+            .create_reader(&book, ReaderConfig::new(width, height))
+            .map_err(|e| JsValue::from_str(&e.to_string()))?;
+        self.reader = Some(reader);
+        self.scene_cache.invalidate_all();
+        serde_json::to_string(&serde_json::json!({ "title": metadata.title, "sections": book.source().book().sections.len(), "progress": 0.0 })).map(|json| JsValue::from_str(&json)).map_err(|e| JsValue::from_str(&e.to_string()))
+    }
+
+    pub fn resize(&mut self, width: u32, height: u32) -> Result<(), JsValue> {
+        let reader = self
+            .reader
+            .as_mut()
+            .ok_or_else(|| JsValue::from_str("no book is open"))?;
+        reader.cancel_pending_navigation();
+        self.viewport = (width, height);
+        if let Some(renderer) = self.renderer.as_mut() {
+            match renderer {
+                BrowserRenderer::Gpu(renderer) => renderer.resize(width, height),
+                BrowserRenderer::Cpu(renderer) => renderer.resize(width, height),
+            }
+        }
+        self.scene_cache.invalidate_all();
+        reader
+            .resize_viewport(width, height)
+            .map(|_| ())
+            .map_err(|e| JsValue::from_str(&e.to_string()))
+    }
+
+    /// Renders the current frame onto the attached WebGPU surface via Vello.
+    pub fn render_frame(&mut self) -> Result<(), JsValue> {
+        let reader = self
+            .reader
+            .as_mut()
+            .ok_or_else(|| JsValue::from_str("no book is open"))?;
+        let renderer = self
+            .renderer
+            .as_mut()
+            .ok_or_else(|| JsValue::from_str("no renderer attached"))?;
+
+        let frame = reader
+            .frame()
+            .map_err(|e| JsValue::from_str(&e.to_string()))?;
+        match renderer {
+            BrowserRenderer::Gpu(renderer) => {
+                for image in frame_images(&frame) {
+                    renderer.ensure_image_uploaded(image);
+                }
+
+                if let rebook_engine::FrameTransition::Curl {
+                    direction,
+                    progress,
+                    start_x_ratio,
+                    start_y_ratio,
+                    current_x_ratio,
+                    current_y_ratio,
+                } = frame.transition
+                {
+                    if let Some(dest_scene) =
+                        ReaderCompositor::compose_destination_scene(&mut self.scene_cache, &frame)
+                    {
+                        let current_scene =
+                            ReaderCompositor::compose_current_scene(&mut self.scene_cache, &frame);
+                        let curl_direction = match direction {
+                            rebook_engine::PageDirection::Next => {
+                                rebook_vello_backend::CurlDirection::Next
+                            }
+                            rebook_engine::PageDirection::Previous => {
+                                rebook_vello_backend::CurlDirection::Previous
+                            }
+                        };
+                        let aspect_ratio = self.viewport.1 as f32 / (self.viewport.0 as f32).max(1.0);
+                        let curl_config = rebook_vello_backend::Curl3dConfig {
+                            aspect_ratio,
+                            ..Default::default()
+                        };
+                        let gesture = if progress > 0.0001 {
+                            rebook_vello_backend::Curl3dGesture {
+                                active: true,
+                                direction: curl_direction,
+                                grab_mode: rebook_vello_backend::CurlGrabMode::TouchPoint,
+                                drag_start_uv: glam::Vec2::new(start_x_ratio, start_y_ratio),
+                                drag_current_uv: glam::Vec2::new(current_x_ratio, current_y_ratio),
+                            }
+                        } else {
+                            rebook_vello_backend::Curl3dGesture {
+                                active: false,
+                                direction: curl_direction,
+                                grab_mode: rebook_vello_backend::CurlGrabMode::TouchPoint,
+                                drag_start_uv: glam::Vec2::new(start_x_ratio, start_y_ratio),
+                                drag_current_uv: glam::Vec2::new(current_x_ratio, current_y_ratio),
+                            }
+                        };
+                        renderer.render_curl_3d(
+                            &current_scene,
+                            &dest_scene,
+                            gesture,
+                            curl_config,
+                        )
+                    } else {
+                        let scene = ReaderCompositor::compose_frame(&mut self.scene_cache, &frame);
+                        renderer.render_frame(&scene)
+                    }
+                } else {
+                    let scene = ReaderCompositor::compose_frame(&mut self.scene_cache, &frame);
+                    renderer.render_frame(&scene)
+                }
+            }
+            BrowserRenderer::Cpu(renderer) => renderer.render_frame(&frame),
+        }
+        .map_err(|e| JsValue::from_str(&e))?;
+        Ok(())
+    }
+
+    /// Advances cooperative pagination within `budget_ms`.
+    /// Returns 0 for Idle, 1 for `MoreWorkRemaining`.
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    pub fn tick(&mut self, budget_ms: f64) -> Result<u8, JsValue> {
+        let reader = self
+            .reader
+            .as_mut()
+            .ok_or_else(|| JsValue::from_str("no book is open"))?;
+        let budget = Duration::from_micros((budget_ms.max(0.0) * 1000.0) as u64);
+        let res = reader
+            .tick(budget)
+            .map_err(|e| JsValue::from_str(&e.to_string()))?;
+        Ok(match res {
+            TickResult::Idle => 0,
+            TickResult::MoreWorkRemaining => 1,
+        })
+    }
+
+    pub fn close(&mut self) {
+        if let Some(reader) = self.reader.as_mut() {
+            reader.cancel_pending_navigation();
+        }
+        self.reader = None;
+    }
+
+    pub fn is_open(&self) -> bool {
+        self.reader.is_some()
+    }
+
+    pub fn toc_json(&self) -> Result<JsValue, JsValue> {
+        let reader = self
+            .reader
+            .as_ref()
+            .ok_or_else(|| JsValue::from_str("no book is open"))?;
+        let items = reader.toc_items().iter().map(|item| serde_json::json!({ "id": item.id, "label": item.label, "depth": item.depth })).collect::<Vec<_>>();
+        serde_json::to_string(&items)
+            .map(|value| JsValue::from_str(&value))
+            .map_err(|e| JsValue::from_str(&e.to_string()))
+    }
+
+    /// Returns browser-facing reading state. The shell presents this data but
+    /// does not derive progression or active TOC ancestry itself.
+    pub fn state_json(&self) -> Result<JsValue, JsValue> {
+        let reader = self
+            .reader
+            .as_ref()
+            .ok_or_else(|| JsValue::from_str("no book is open"))?;
+        let snapshot = reader.snapshot();
+        let location = snapshot.location;
+        let value = serde_json::json!({
+            "progression": snapshot.total_progression,
+            "active_toc_id": snapshot.active_toc_id,
+            "active_toc_path": snapshot.active_toc_path,
+            "location": {
+                "section_index": location.section_index,
+                "segment_index": location.segment_index,
+                "segment_count": location.segment_count,
+                "page_index": location.page_index,
+                "page_count": location.page_count,
+            },
+        });
+        json_to_js(&value)
+    }
+
+    pub fn locator_json(&self) -> Result<JsValue, JsValue> {
+        let reader = self
+            .reader
+            .as_ref()
+            .ok_or_else(|| JsValue::from_str("no book is open"))?;
+        let value = serde_json::to_value(reader.current_locator())
+            .map_err(|e| JsValue::from_str(&e.to_string()))?;
+        json_to_js(&value)
+    }
+
+    pub fn restore_locator_json(&mut self, locator_json: &str) -> Result<(), JsValue> {
+        let locator: LocatorV1 = serde_json::from_str(locator_json)
+            .map_err(|e| JsValue::from_str(&format!("invalid locator: {e}")))?;
+        let reader = self
+            .reader
+            .as_mut()
+            .ok_or_else(|| JsValue::from_str("no book is open"))?;
+        reader
+            .restore_locator(&locator)
+            .map_err(|e| JsValue::from_str(&e.to_string()))?;
+        self.scene_cache.invalidate_all();
+        Ok(())
+    }
+
+    pub fn navigate_toc(&mut self, id: &str) -> Result<(), JsValue> {
+        let reader = self
+            .reader
+            .as_mut()
+            .ok_or_else(|| JsValue::from_str("no book is open"))?;
+        reader
+            .go_to_toc_item(id)
+            .map_err(|e| JsValue::from_str(&e.to_string()))?;
+        self.scene_cache.invalidate_all();
+        Ok(())
+    }
+
+    /// Returns retained-page diagnostics after pagination. This is the first
+    /// browser-visible proof that the reader, not just the parser, is active.
+    pub fn page_info(&mut self) -> Result<JsValue, JsValue> {
+        let reader = self
+            .reader
+            .as_mut()
+            .ok_or_else(|| JsValue::from_str("no book is open"))?;
+        let spread = reader
+            .current_spread()
+            .map_err(|e| JsValue::from_str(&e.to_string()))?;
+        let primary = &spread.primary;
+        let secondary = spread.secondary.as_ref();
+        let json = serde_json::json!({
+            "primary_commands": primary.command_count(),
+            "primary_text_regions": primary.text_region_count(),
+            "secondary_commands": secondary.map(|page| page.command_count()),
+            "secondary_text_regions": secondary.map(|page| page.text_region_count()),
+        });
+        serde_json::to_string(&json)
+            .map(|value| JsValue::from_str(&value))
+            .map_err(|e| JsValue::from_str(&e.to_string()))
+    }
+
+    pub fn page_text(&mut self) -> Result<JsValue, JsValue> {
+        let reader = self
+            .reader
+            .as_mut()
+            .ok_or_else(|| JsValue::from_str("no book is open"))?;
+        let spread = reader
+            .current_spread()
+            .map_err(|e| JsValue::from_str(&e.to_string()))?;
+        let mut pages = vec![&spread.primary];
+        if let Some(secondary) = spread.secondary.as_ref() {
+            pages.push(secondary);
+        }
+        let text = pages
+            .into_iter()
+            .flat_map(|page| {
+                (0..page.text_region_count()).filter_map(|index| page.text_region_text(index))
+            })
+            .collect::<Vec<_>>()
+            .join("\n\n");
+        Ok(JsValue::from_str(&text))
+    }
+
+    pub fn navigate_next(&mut self) -> Result<u8, JsValue> {
+        self.navigation_step(PageDirection::Next)
+    }
+
+    pub fn navigate_previous(&mut self) -> Result<u8, JsValue> {
+        self.navigation_step(PageDirection::Previous)
+    }
+
+    pub fn pointer_down(
+        &mut self,
+        id: u32,
+        x: f32,
+        y: f32,
+        timestamp_ms: f64,
+    ) -> Result<u8, JsValue> {
+        let reader = self.reader_mut()?;
+        Ok(pointer_result_code(reader.pointer_down(
+            u64::from(id),
+            x,
+            y,
+            timestamp_ms,
+        )))
+    }
+
+    pub fn pointer_move(
+        &mut self,
+        id: u32,
+        x: f32,
+        y: f32,
+        timestamp_ms: f64,
+    ) -> Result<u8, JsValue> {
+        let reader = self.reader_mut()?;
+        reader
+            .pointer_move(u64::from(id), x, y, timestamp_ms)
+            .map(pointer_result_code)
+            .map_err(|e| JsValue::from_str(&e.to_string()))
+    }
+
+    pub fn pointer_up(
+        &mut self,
+        id: u32,
+        x: f32,
+        y: f32,
+        timestamp_ms: f64,
+    ) -> Result<u8, JsValue> {
+        let reader = self.reader_mut()?;
+        reader
+            .pointer_up(u64::from(id), x, y, timestamp_ms)
+            .map(pointer_result_code)
+            .map_err(|e| JsValue::from_str(&e.to_string()))
+    }
+
+    pub fn pointer_cancel(&mut self, timestamp_ms: f64) -> Result<u8, JsValue> {
+        Ok(pointer_result_code(
+            self.reader_mut()?.cancel_pointer_gesture(timestamp_ms),
+        ))
+    }
+
+    pub fn focus_lost(&mut self, timestamp_ms: f64) -> Result<u8, JsValue> {
+        self.pointer_cancel(timestamp_ms)
+    }
+
+    pub fn selection_start(&mut self, x: f32, y: f32) -> Result<bool, JsValue> {
+        self.reader_mut()?
+            .begin_text_selection(x, y)
+            .map_err(|e| JsValue::from_str(&e.to_string()))
+    }
+
+    pub fn selection_update(&mut self, x: f32, y: f32) -> Result<bool, JsValue> {
+        self.reader_mut()?
+            .update_text_selection(x, y)
+            .map_err(|e| JsValue::from_str(&e.to_string()))
+    }
+
+    pub fn selection_end(&mut self) -> Result<String, JsValue> {
+        Ok(self
+            .reader_mut()?
+            .end_text_selection()
+            .unwrap_or_default()
+            .to_owned())
+    }
+
+    pub fn selection_clear(&mut self) -> Result<bool, JsValue> {
+        Ok(self.reader_mut()?.clear_text_selection())
+    }
+
+    pub fn selection_json(&self) -> Result<JsValue, JsValue> {
+        let reader = self
+            .reader
+            .as_ref()
+            .ok_or_else(|| JsValue::from_str("no book is open"))?;
+        let value = reader.selection().map_or_else(
+            || serde_json::json!({"text": "", "ranges": [], "rects": []}),
+            |selection| {
+                serde_json::json!({
+                    "text": selection.text,
+                    "ranges": selection.ranges,
+                    "rects": selection.rects.iter().map(|rect| serde_json::json!({
+                        "position": {
+                            "section_index": rect.position.section_index,
+                            "segment_index": rect.position.segment_index,
+                            "page_index": rect.position.page_index,
+                        },
+                        "x": rect.x,
+                        "y": rect.y,
+                        "width": rect.width,
+                        "height": rect.height,
+                    })).collect::<Vec<_>>(),
+                })
+            },
+        );
+        json_to_js(&value)
+    }
+
+    pub fn animation_step(&mut self, timestamp_ms: f64) -> Result<u8, JsValue> {
+        self.reader_mut()?
+            .animation_step(timestamp_ms)
+            .map(|state| match state {
+                EngineAnimationState::Idle => 0,
+                EngineAnimationState::NeedsFrame => 1,
+                EngineAnimationState::Moved => 2,
+            })
+            .map_err(|e| JsValue::from_str(&e.to_string()))
+    }
+
+    fn navigation_step(&mut self, direction: PageDirection) -> Result<u8, JsValue> {
+        let reader = self
+            .reader
+            .as_mut()
+            .ok_or_else(|| JsValue::from_str("no book is open"))?;
+        reader
+            .navigation_step(direction)
+            .map(|state| match state {
+                EngineNavigationState::Boundary => 0,
+                EngineNavigationState::Pending => 1,
+                EngineNavigationState::Moved => 2,
+            })
+            .map_err(|e| JsValue::from_str(&e.to_string()))
+    }
+
+    fn reader_mut(&mut self) -> Result<&mut EngineReader, JsValue> {
+        self.reader
+            .as_mut()
+            .ok_or_else(|| JsValue::from_str("no book is open"))
+    }
+}
+
+fn web_engine() -> Engine {
+    const LITERATA: &[u8] = include_bytes!("../../../assets/fonts/Literata-opsz-wght.ttf");
+    const LITERATA_ITALIC: &[u8] =
+        include_bytes!("../../../assets/fonts/Literata-Italic-opsz-wght.ttf");
+    let fonts = vec![
+        ReaderFontBlob::new(Arc::new(LITERATA)),
+        ReaderFontBlob::new(Arc::new(LITERATA_ITALIC)),
+    ];
+    Engine::new(EngineConfig {
+        fonts: fonts.into(),
+    })
+}
+
+/// Browser-facing handle with a shared WASM ABI. Mutable engine state is
+/// guarded internally so wasm-bindgen never holds an exclusive borrow of the
+/// exported object across browser callbacks.
+#[wasm_bindgen]
+pub struct WebReader {
+    inner: RefCell<Option<WebReaderState>>,
+}
+
+#[wasm_bindgen]
+impl WebReader {
+    #[wasm_bindgen(constructor)]
+    pub fn new() -> Self {
+        Self {
+            inner: RefCell::new(Some(WebReaderState::new())),
+        }
+    }
+
+    pub async fn create(canvas: HtmlCanvasElement) -> Result<WebReader, JsValue> {
+        Ok(Self {
+            inner: RefCell::new(Some(WebReaderState::create(canvas).await?)),
+        })
+    }
+
+    pub fn renderer_kind(&self) -> Result<String, JsValue> {
+        self.with_inner(|inner| Ok(inner.renderer_kind()))
+    }
+
+    pub fn open_bytes(
+        &self,
+        bytes: &[u8],
+        file_name: &str,
+        width: u32,
+        height: u32,
+    ) -> Result<JsValue, JsValue> {
+        self.with_inner_mut(|inner| inner.open_bytes(bytes, file_name, width, height))
+    }
+
+    pub fn resize(&self, width: u32, height: u32) -> Result<(), JsValue> {
+        self.with_inner_mut(|inner| inner.resize(width, height))
+    }
+
+    pub fn render_frame(&self) -> Result<(), JsValue> {
+        self.with_inner_mut(WebReaderState::render_frame)
+    }
+
+    pub fn tick(&self, budget_ms: f64) -> Result<u8, JsValue> {
+        self.with_inner_mut(|inner| inner.tick(budget_ms))
+    }
+
+    pub fn close(&self) {
+        let _ = self.with_inner_mut(|inner| {
+            inner.close();
+            Ok(())
+        });
+    }
+
+    pub fn is_open(&self) -> bool {
+        self.inner
+            .try_borrow()
+            .ok()
+            .and_then(|inner| inner.as_ref().map(WebReaderState::is_open))
+            .unwrap_or(false)
+    }
+
+    pub fn toc_json(&self) -> Result<JsValue, JsValue> {
+        self.with_inner(WebReaderState::toc_json)
+    }
+
+    pub fn state_json(&self) -> Result<JsValue, JsValue> {
+        self.with_inner(WebReaderState::state_json)
+    }
+
+    pub fn locator_json(&self) -> Result<JsValue, JsValue> {
+        self.with_inner(WebReaderState::locator_json)
+    }
+
+    pub fn restore_locator_json(&self, locator_json: &str) -> Result<(), JsValue> {
+        self.with_inner_mut(|inner| inner.restore_locator_json(locator_json))
+    }
+
+    pub fn navigate_toc(&self, id: &str) -> Result<(), JsValue> {
+        self.with_inner_mut(|inner| inner.navigate_toc(id))
+    }
+
+    pub fn page_info(&self) -> Result<JsValue, JsValue> {
+        self.with_inner_mut(WebReaderState::page_info)
+    }
+
+    pub fn page_text(&self) -> Result<JsValue, JsValue> {
+        self.with_inner_mut(WebReaderState::page_text)
+    }
+
+    pub fn navigate_next(&self) -> Result<u8, JsValue> {
+        self.with_inner_mut(WebReaderState::navigate_next)
+    }
+
+    pub fn navigate_previous(&self) -> Result<u8, JsValue> {
+        self.with_inner_mut(WebReaderState::navigate_previous)
+    }
+
+    pub fn pointer_down(&self, id: u32, x: f32, y: f32, timestamp_ms: f64) -> Result<u8, JsValue> {
+        self.with_inner_mut(|inner| inner.pointer_down(id, x, y, timestamp_ms))
+    }
+
+    pub fn pointer_move(&self, id: u32, x: f32, y: f32, timestamp_ms: f64) -> Result<u8, JsValue> {
+        self.with_inner_mut(|inner| inner.pointer_move(id, x, y, timestamp_ms))
+    }
+
+    pub fn pointer_up(&self, id: u32, x: f32, y: f32, timestamp_ms: f64) -> Result<u8, JsValue> {
+        self.with_inner_mut(|inner| inner.pointer_up(id, x, y, timestamp_ms))
+    }
+
+    pub fn pointer_cancel(&self, timestamp_ms: f64) -> Result<u8, JsValue> {
+        self.with_inner_mut(|inner| inner.pointer_cancel(timestamp_ms))
+    }
+
+    pub fn focus_lost(&self, timestamp_ms: f64) -> Result<u8, JsValue> {
+        self.with_inner_mut(|inner| inner.focus_lost(timestamp_ms))
+    }
+
+    pub fn selection_start(&self, x: f32, y: f32) -> Result<bool, JsValue> {
+        self.with_inner_mut(|inner| inner.selection_start(x, y))
+    }
+
+    pub fn selection_update(&self, x: f32, y: f32) -> Result<bool, JsValue> {
+        self.with_inner_mut(|inner| inner.selection_update(x, y))
+    }
+
+    pub fn selection_end(&self) -> Result<String, JsValue> {
+        self.with_inner_mut(WebReaderState::selection_end)
+    }
+
+    pub fn selection_clear(&self) -> Result<bool, JsValue> {
+        self.with_inner_mut(WebReaderState::selection_clear)
+    }
+
+    pub fn selection_json(&self) -> Result<JsValue, JsValue> {
+        self.with_inner(WebReaderState::selection_json)
+    }
+
+    pub fn animation_step(&self, timestamp_ms: f64) -> Result<u8, JsValue> {
+        self.with_inner_mut(|inner| inner.animation_step(timestamp_ms))
+    }
+
+    fn with_inner<T>(
+        &self,
+        operation: impl FnOnce(&WebReaderState) -> Result<T, JsValue>,
+    ) -> Result<T, JsValue> {
+        let inner = self.inner.try_borrow().map_err(|_| busy_error())?;
+        operation(inner.as_ref().ok_or_else(busy_error)?)
+    }
+
+    fn with_inner_mut<T>(
+        &self,
+        operation: impl FnOnce(&mut WebReaderState) -> Result<T, JsValue>,
+    ) -> Result<T, JsValue> {
+        // Release the cell borrow before calling engine/GPU/browser code. A
+        // synchronous callback sees a temporary busy state but cannot recurse
+        // into or permanently poison the exported reader object.
+        let mut state = self
+            .inner
+            .try_borrow_mut()
+            .map_err(|_| busy_error())?
+            .take()
+            .ok_or_else(busy_error)?;
+        let result = operation(&mut state);
+        self.inner.replace(Some(state));
+        result
+    }
+}
+
+impl Default for WebReader {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+fn busy_error() -> JsValue {
+    JsValue::from_str("reader is busy; retry on the next animation frame")
+}
+
+fn pointer_result_code(result: PointerGestureResult) -> u8 {
+    match result {
+        PointerGestureResult::Ignored => 0,
+        PointerGestureResult::Tracking => 1,
+        PointerGestureResult::Claimed => 2,
+        PointerGestureResult::Turn(PageDirection::Next) => 3,
+        PointerGestureResult::Turn(PageDirection::Previous) => 4,
+        PointerGestureResult::Cancelled => 5,
+    }
+}
+
+fn json_to_js(value: &serde_json::Value) -> Result<JsValue, JsValue> {
+    serde_json::to_string(value)
+        .map(|json| JsValue::from_str(&json))
+        .map_err(|e| JsValue::from_str(&e.to_string()))
+}

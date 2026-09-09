@@ -2,9 +2,14 @@
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::ops::Range;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::mpsc::{self, Receiver, Sender, TryRecvError};
+#[cfg(not(target_arch = "wasm32"))]
+use std::sync::atomic::AtomicBool;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::mpsc::TryRecvError;
+#[cfg(not(target_arch = "wasm32"))]
+use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Condvar, Mutex, Weak};
+#[cfg(not(target_arch = "wasm32"))]
 use std::thread::{self, JoinHandle};
 
 use rebook_layout::{
@@ -265,6 +270,15 @@ pub enum NavigationPreparation {
     Boundary,
 }
 
+/// Result of a cooperative work quantum.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TickResult {
+    /// Work queue is empty or no background tasks are pending.
+    Idle,
+    /// Bounded budget expired while more work remains in the queue.
+    MoreWorkRemaining,
+}
+
 /// A prepared navigation transaction holding source and destination spreads.
 pub struct PreparedNavigation {
     token: NavigationToken,
@@ -458,6 +472,7 @@ struct PrefetchKey {
     segment: SegmentKey,
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 struct PrefetchWorker {
     requests: Option<Sender<PrefetchRequest>>,
     results: Mutex<Receiver<PrefetchResult>>,
@@ -467,6 +482,7 @@ struct PrefetchWorker {
     handle: Option<JoinHandle<()>>,
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 impl PrefetchWorker {
     fn spawn(
         source: Arc<dyn BookSource>,
@@ -583,14 +599,154 @@ impl PrefetchWorker {
                 results.try_recv()
             })
     }
+
+    #[allow(clippy::unused_self)]
+    fn tick(&self, _budget: std::time::Duration) -> TickResult {
+        TickResult::Idle
+    }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 impl Drop for PrefetchWorker {
     fn drop(&mut self) {
         self.cancelled.store(true, Ordering::Release);
         self.requests.take();
         if let Some(handle) = self.handle.take() {
             let _ = handle.join();
+        }
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+struct WasmPrefetchState {
+    source: Arc<dyn BookSource>,
+    repository: Arc<SectionRepository>,
+    layout_engine: LayoutEngine,
+    pending: VecDeque<PrefetchRequest>,
+    completed: VecDeque<PrefetchResult>,
+}
+
+#[cfg(target_arch = "wasm32")]
+struct PrefetchWorker {
+    state: Mutex<WasmPrefetchState>,
+    active_generation: Arc<AtomicU64>,
+}
+
+#[cfg(target_arch = "wasm32")]
+impl PrefetchWorker {
+    fn spawn(
+        source: Arc<dyn BookSource>,
+        repository: Arc<SectionRepository>,
+        fonts: Arc<[ReaderFontBlob]>,
+    ) -> Result<Self, ReaderError> {
+        let layout_engine = LayoutEngine::with_fonts(fonts.iter().cloned());
+        Ok(Self {
+            state: Mutex::new(WasmPrefetchState {
+                source,
+                repository,
+                layout_engine,
+                pending: VecDeque::new(),
+                completed: VecDeque::new(),
+            }),
+            active_generation: Arc::new(AtomicU64::new(0)),
+        })
+    }
+
+    fn generation(&self) -> u64 {
+        self.active_generation.load(Ordering::Acquire)
+    }
+
+    fn invalidate(&self) -> u64 {
+        let next_generation = self.active_generation.fetch_add(1, Ordering::AcqRel) + 1;
+        if let Ok(mut state) = self.state.lock() {
+            state.pending.clear();
+            state.completed.clear();
+        }
+        next_generation
+    }
+
+    fn active_key(&self) -> Option<PrefetchKey> {
+        None
+    }
+
+    fn send(&self, request: PrefetchRequest) -> Result<(), ReaderError> {
+        let mut state = self
+            .state
+            .lock()
+            .map_err(|_| ReaderError::PrefetchWorkerStopped)?;
+        state.pending.push_back(request);
+        Ok(())
+    }
+
+    fn step_one(state: &mut WasmPrefetchState, active_gen: u64) -> Option<PrefetchResult> {
+        let display_compiler = DisplayListCompiler;
+        while let Some(request) = state.pending.pop_front() {
+            if request.generation != active_gen {
+                continue;
+            }
+            let segment = state
+                .repository
+                .load(request.key.section_index)
+                .and_then(|section| {
+                    compile_segment(
+                        state.source.as_ref(),
+                        section,
+                        request.key,
+                        request.viewport,
+                        &request.style,
+                        &mut state.layout_engine,
+                        &display_compiler,
+                    )
+                    .map(Arc::new)
+                });
+            return Some(PrefetchResult {
+                key: request.key,
+                generation: request.generation,
+                segment,
+            });
+        }
+        None
+    }
+
+    fn recv(&self) -> Result<PrefetchResult, ReaderError> {
+        let mut state = self
+            .state
+            .lock()
+            .map_err(|_| ReaderError::PrefetchWorkerStopped)?;
+        let active_gen = self.active_generation.load(Ordering::Acquire);
+        if let Some(res) = state.completed.pop_front() {
+            return Ok(res);
+        }
+        if let Some(res) = Self::step_one(&mut state, active_gen) {
+            return Ok(res);
+        }
+        Err(ReaderError::PrefetchWorkerStopped)
+    }
+
+    fn try_recv(&self) -> Result<PrefetchResult, TryRecvError> {
+        let mut state = self.state.lock().map_err(|_| TryRecvError::Disconnected)?;
+        if let Some(res) = state.completed.pop_front() {
+            return Ok(res);
+        }
+        Err(TryRecvError::Empty)
+    }
+
+    fn tick(&self, budget: std::time::Duration) -> TickResult {
+        let Ok(mut state) = self.state.lock() else {
+            return TickResult::Idle;
+        };
+        let active_gen = self.active_generation.load(Ordering::Acquire);
+        let start = web_time::Instant::now();
+        loop {
+            if state.pending.is_empty() {
+                return TickResult::Idle;
+            }
+            if start.elapsed() >= budget {
+                return TickResult::MoreWorkRemaining;
+            }
+            if let Some(res) = Self::step_one(&mut state, active_gen) {
+                state.completed.push_back(res);
+            }
         }
     }
 }
@@ -2143,6 +2299,15 @@ impl ReaderSession {
         Ok(())
     }
 
+    /// Advances cooperative background work within the given execution `budget`.
+    /// On WASM, this processes queued segment compilations without blocking the event loop.
+    /// On native, it polls results from the background worker thread.
+    pub fn tick(&mut self, budget: std::time::Duration) -> Result<TickResult, ReaderError> {
+        let tick_res = self.prefetch_worker.tick(budget);
+        self.poll_prefetch()?;
+        Ok(tick_res)
+    }
+
     /// Blocks until all currently queued prefetch work has been collected.
     /// Intended for diagnostics and deterministic tests, not interactive shells.
     pub fn wait_for_prefetch(&mut self) -> Result<(), ReaderError> {
@@ -2378,6 +2543,10 @@ impl ReaderSession {
 
     pub fn cached_segment_count(&self) -> usize {
         self.cache.len()
+    }
+
+    pub fn layout_generation(&self) -> u64 {
+        self.prefetch_worker.generation()
     }
 
     fn current_spread_pages(
@@ -2673,7 +2842,7 @@ impl ReaderSession {
         })))
     }
 
-    fn next_position(
+    pub fn next_position(
         &mut self,
         position: ReaderPosition,
     ) -> Result<Option<ReaderPosition>, ReaderError> {
@@ -7090,5 +7259,110 @@ mod tests {
             Err(ReaderError::StaleNavigationToken)
         ));
         assert!(!reader.cancel_navigation(token2));
+    }
+
+    #[test]
+    fn scheduler_pending_navigation_becomes_ready_over_ticks() {
+        let source =
+            CountingSource::new(&["Chương 1".into(), "Chương 2".into(), "Chương 3".into()]);
+        let mut reader =
+            ReaderSession::open(source, viewport(600, 400), ReaderStyle::default()).unwrap();
+
+        // 1. Prepare navigation forwards
+        let prep = reader.prepare_navigation(PageDirection::Next).unwrap();
+        let token = match prep {
+            NavigationPreparation::Pending(tok) => tok,
+            NavigationPreparation::Ready(_) => panic!("expected pending before compilation"),
+            NavigationPreparation::Boundary => panic!("expected pending, not boundary"),
+        };
+
+        // 2. Advancing work via tick
+        let _ = reader.tick(Duration::from_millis(50)).unwrap();
+        reader.wait_for_prefetch().unwrap();
+
+        // 3. Polling navigation now returns Ready
+        let prep_ready = reader.poll_navigation(token).unwrap();
+        let NavigationPreparation::Ready(prepared) = prep_ready else {
+            panic!("navigation transaction should be ready after tick/prefetch");
+        };
+
+        // 4. Commit moves the reader
+        let result = reader.commit_navigation(prepared).unwrap();
+        assert_eq!(result.outcome, NavigationOutcome::Moved);
+        assert_eq!(result.snapshot.location.section_index, 1);
+    }
+
+    #[test]
+    fn scheduler_opposite_direction_cancels_and_replaces_pending_navigation() {
+        let source = CountingSource::new(&["Một".into(), "Hai".into(), "Ba".into()]);
+        let mut reader =
+            ReaderSession::open(source, viewport(600, 400), ReaderStyle::default()).unwrap();
+        reader.wait_for_prefetch().unwrap();
+
+        // Go to section 1 first
+        reader.go_to_section(1).unwrap();
+        let section_1_pos = reader.current_position();
+
+        // Prepare Next
+        let NavigationPreparation::Pending(token_next) =
+            reader.prepare_navigation(PageDirection::Next).unwrap()
+        else {
+            panic!("expected pending for next");
+        };
+
+        // Opposite direction (Previous) replaces the active navigation transaction
+        let prep_prev = reader.prepare_navigation(PageDirection::Previous).unwrap();
+        match prep_prev {
+            NavigationPreparation::Pending(token_prev) => {
+                assert_ne!(token_prev, token_next);
+                // Old token is now stale/rejected
+                assert!(matches!(
+                    reader.poll_navigation(token_next),
+                    Err(ReaderError::StaleNavigationToken)
+                ));
+            }
+            NavigationPreparation::Ready(prepared_prev) => {
+                assert!(matches!(
+                    reader.poll_navigation(token_next),
+                    Err(ReaderError::StaleNavigationToken)
+                ));
+                let res = reader.commit_navigation(prepared_prev).unwrap();
+                assert_eq!(res.outcome, NavigationOutcome::Moved);
+                assert_eq!(res.snapshot.location.section_index, 0);
+            }
+            NavigationPreparation::Boundary => panic!("expected pending or ready, not boundary"),
+        }
+        assert_eq!(
+            reader.current_position().section_index,
+            if prep_prev_was_ready(&reader) {
+                0
+            } else {
+                section_1_pos.section_index
+            }
+        );
+    }
+
+    fn prep_prev_was_ready(reader: &ReaderSession) -> bool {
+        reader.current_position().section_index == 0
+    }
+
+    #[test]
+    fn scheduler_boundary_navigation_never_mutates_location() {
+        let source = CountingSource::new(&["Single Page Section".into()]);
+        let mut reader =
+            ReaderSession::open(source, viewport(600, 400), ReaderStyle::default()).unwrap();
+        reader.wait_for_prefetch().unwrap();
+
+        let initial_location = reader.location();
+
+        // Previous at beginning
+        let prep_prev = reader.prepare_navigation(PageDirection::Previous).unwrap();
+        assert!(matches!(prep_prev, NavigationPreparation::Boundary));
+        assert_eq!(reader.location(), initial_location);
+
+        // Next at end
+        let prep_next = reader.prepare_navigation(PageDirection::Next).unwrap();
+        assert!(matches!(prep_next, NavigationPreparation::Boundary));
+        assert_eq!(reader.location(), initial_location);
     }
 }

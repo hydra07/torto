@@ -3190,6 +3190,11 @@ fn prepare_inline_raster(
     let intrinsic_height = image.height.max(1) as f32;
     let aspect_ratio = intrinsic_width / intrinsic_height;
     let surrounding_scale = run.size_scale.max(0.1);
+    let large_intrinsic_illustration = run.intrinsic_sizing
+        && run.image.style.width.is_none()
+        && run.image.style.height.is_none()
+        && !run.presentation
+        && (intrinsic_width > 96.0 || intrinsic_height > 96.0);
     let authored_height = run.image.style.height.map(|height| match height {
         ImageLength::Pixels(pixels) => typography.font_size * surrounding_scale * pixels / 16.0,
         ImageLength::Fraction(fraction) => typography.font_size * surrounding_scale * fraction,
@@ -3198,7 +3203,9 @@ fn prepare_inline_raster(
         ImageLength::Pixels(pixels) => typography.font_size * surrounding_scale * pixels / 16.0,
         ImageLength::Fraction(fraction) => available_width * fraction,
     });
-    let (mut requested_width, mut requested_height) = if run.intrinsic_sizing {
+    let (mut requested_width, mut requested_height) = if large_intrinsic_illustration {
+        (intrinsic_width, intrinsic_height)
+    } else if run.intrinsic_sizing {
         if let Some(height) = authored_height {
             (height * aspect_ratio, height)
         } else if let Some(width) = authored_width {
@@ -3212,7 +3219,11 @@ fn prepare_inline_raster(
         (height * aspect_ratio, height)
     };
     let minimum_height = typography.font_size * 0.2;
-    let maximum_height = typography.font_size * 4.0;
+    let maximum_height = if large_intrinsic_illustration {
+        typography.font_size * 16.0
+    } else {
+        typography.font_size * 4.0
+    };
     let height_scale =
         requested_height.clamp(minimum_height, maximum_height) / requested_height.max(1.0);
     requested_width *= height_scale;
@@ -4529,6 +4540,39 @@ mod tests {
         assert!(image.offset_y < image.height * 0.5);
         let visual_center_from_baseline = -image.box_height + image.offset_y + image.height * 0.5;
         assert!((visual_center_from_baseline + typography.font_size * 0.3).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn large_unstyled_inline_illustrations_keep_intrinsic_aspect_ratio() {
+        let run = rebook_publication::InlineImageRun {
+            image: ImageBlock {
+                href: PublicationUrl::parse("images/illustration.jpg").unwrap(),
+                alt: "Chapter illustration".into(),
+                style: ImageStyle::default(),
+                source: None,
+                text_layer: None,
+            },
+            size_scale: 1.0,
+            intrinsic_sizing: true,
+            vertical_align: InlineImageAlignment::Baseline,
+            presentation: false,
+        };
+        let image = prepare_inline_raster(
+            &run,
+            RasterImage {
+                width: 240,
+                height: 320,
+                pixels: vec![0; 240 * 320 * 4].into(),
+            },
+            &ReaderTypography::default(),
+            300.0,
+            1,
+            0,
+        );
+
+        assert!((image.width - 240.0).abs() < 0.001);
+        assert!((image.height - 320.0).abs() < 0.001);
+        assert!((image.width / image.height - 0.75).abs() < 0.001);
     }
 
     #[test]

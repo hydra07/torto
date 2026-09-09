@@ -5,23 +5,33 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 
+[features]
+default = ["all-formats"]
+all-formats = ["epub", "mobi", "fb2", "cbz", "chm", "pdf"]
+epub = ["dep:crc32fast", "dep:flate2", "dep:image", "dep:quick-xml", "dep:roxmltree", "dep:sha2", "dep:zip"]
+mobi = ["dep:encoding_rs", "dep:quick-xml", "dep:sha2"]
+fb2 = ["dep:base64", "dep:encoding_rs", "dep:roxmltree", "dep:sha2", "dep:zip"]
+cbz = ["dep:encoding_rs", "dep:roxmltree", "dep:sha2", "dep:zip"]
+chm = ["dep:encoding_rs", "dep:libchm", "dep:roxmltree", "dep:scraper", "dep:sha2"]
+pdf = ["dep:hayro", "dep:kurbo", "dep:sha2"]
+
 [dependencies]
-base64.workspace = true
-crc32fast.workspace = true
-encoding_rs.workspace = true
-flate2.workspace = true
-hayro.workspace = true
-image.workspace = true
-kurbo.workspace = true
-libchm.workspace = true
-quick-xml.workspace = true
+base64 = { workspace = true, optional = true }
+crc32fast = { workspace = true, optional = true }
+encoding_rs = { workspace = true, optional = true }
+flate2 = { workspace = true, optional = true }
+hayro = { workspace = true, optional = true }
+image = { workspace = true, optional = true }
+kurbo = { workspace = true, optional = true }
+libchm = { workspace = true, optional = true }
+quick-xml = { workspace = true, optional = true }
 rebook-html = { path = "../html" }
 rebook-publication = { path = "../publication" }
-roxmltree.workspace = true
-scraper.workspace = true
-sha2.workspace = true
+roxmltree = { workspace = true, optional = true }
+scraper = { workspace = true, optional = true }
+sha2 = { workspace = true, optional = true }
 thiserror.workspace = true
-zip.workspace = true
+zip = { workspace = true, optional = true }
 
 [lints]
 workspace = true

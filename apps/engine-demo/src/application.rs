@@ -21,8 +21,11 @@ use crate::metrics::{FrameStats, MetricsFormat, PipelineMetrics, RollingWindowMe
 use crate::render::scene::{OverlaySet, PageSceneKey, SpreadSceneKey};
 use crate::render::scene_cache::{MemoryPressure, ResourceProfile};
 use crate::render::{ReaderCompositor, SpreadSceneCache};
+use rebook_vello_backend::{
+    Curl3dConfig, Curl3dGesture, CurlDirection, CurlGrabMode,
+};
 use crate::surface::SurfaceRenderer;
-use crate::transition::{
+use rebook_engine::transition::{
     DragGesture, TransitionKind, TransitionPolicy, TransitionState, evaluate_settle_progress,
     slide_transforms,
 };
@@ -57,6 +60,8 @@ pub struct DemoApplication {
     transition_kind: TransitionKind,
     transition_state: TransitionState,
     transition_policy: TransitionPolicy,
+    curl_gesture: Curl3dGesture,
+    curl_config: Curl3dConfig,
     active_pointer_id: Option<u64>,
     cursor_position: Option<PhysicalPosition<f64>>,
 }
@@ -90,6 +95,11 @@ impl DemoApplication {
             transition_kind: transition.unwrap_or(TransitionKind::Slide),
             transition_state: TransitionState::Idle,
             transition_policy: TransitionPolicy::default(),
+            curl_gesture: Curl3dGesture::default(),
+            curl_config: Curl3dConfig {
+                aspect_ratio: 1000.0 / 800.0,
+                ..Curl3dConfig::default()
+            },
             active_pointer_id: None,
             cursor_position: None,
         }
@@ -264,7 +274,6 @@ impl DemoApplication {
             } => {
                 let (p, done) =
                     evaluate_settle_progress(*from, *to, started_at.elapsed(), *duration);
-                current_progress = Some((prepared.direction(), p));
                 if done {
                     if (*to - 1.0).abs() < 1e-4 {
                         // Reached 1.0 -> commit
@@ -279,8 +288,11 @@ impl DemoApplication {
                         self.transition_state = TransitionState::Idle;
                         cancel_token = Some(token);
                     }
-                } else if let Some(w) = &self.window {
-                    w.request_redraw();
+                } else {
+                    current_progress = Some((prepared.direction(), p));
+                    if let Some(w) = &self.window {
+                        w.request_redraw();
+                    }
                 }
             }
             TransitionState::Interactive {
@@ -372,26 +384,48 @@ impl DemoApplication {
                 gpu.mark_image_dirty(image);
             }
 
-            let overlays = OverlaySet::default();
-            let (source_x, dest_x) =
-                slide_transforms(direction, progress, self.viewport.width as f32);
-
-            let mut scene = Scene::new();
-            let source_scene = ReaderCompositor::compose_spread_scene(
-                &source_layers,
-                &source_spread,
-                &overlays,
-                Some(Affine::translate((f64::from(source_x), 0.0))),
-            );
-            let dest_scene = ReaderCompositor::compose_spread_scene(
-                &dest_layers,
-                &destination_spread,
-                &overlays,
-                Some(Affine::translate((f64::from(dest_x), 0.0))),
-            );
-            scene.append(&source_scene, None);
-            scene.append(&dest_scene, None);
-            scene
+            match self.transition_kind {
+                TransitionKind::None => {
+                    ReaderCompositor::compose_spread_scene(
+                        &source_layers,
+                        &source_spread,
+                        &OverlaySet::default(),
+                        None,
+                    )
+                }
+                TransitionKind::Slide => {
+                    let (source_x, dest_x) =
+                        slide_transforms(direction, progress, self.viewport.width as f32);
+                    let mut scene = Scene::new();
+                    let source_scene = ReaderCompositor::compose_spread_scene(
+                        &source_layers,
+                        &source_spread,
+                        &OverlaySet::default(),
+                        Some(Affine::translate((f64::from(source_x), 0.0))),
+                    );
+                    let dest_scene = ReaderCompositor::compose_spread_scene(
+                        &dest_layers,
+                        &destination_spread,
+                        &OverlaySet::default(),
+                        Some(Affine::translate((f64::from(dest_x), 0.0))),
+                    );
+                    scene.append(&source_scene, None);
+                    scene.append(&dest_scene, None);
+                    scene
+                }
+                TransitionKind::Curl => {
+                    ReaderCompositor::compose_curl(
+                        &source_layers,
+                        &dest_layers,
+                        &source_spread,
+                        &destination_spread,
+                        direction,
+                        progress,
+                        f64::from(self.viewport.width),
+                        f64::from(self.viewport.height),
+                    )
+                }
+            }
         } else {
             // Idle or TrackingSlop: compose single current spread
             self.scene_cache.clear_pins();
@@ -488,7 +522,7 @@ impl DemoApplication {
         }
     }
 
-    fn handle_pointer_down(&mut self, pointer_id: u64, x: f32) {
+    fn handle_pointer_down(&mut self, pointer_id: u64, x: f32, y: f32) {
         if self.transition_kind == TransitionKind::None {
             return;
         }
@@ -503,12 +537,12 @@ impl DemoApplication {
 
         self.active_pointer_id = Some(pointer_id);
         self.transition_state = TransitionState::TrackingSlop {
-            gesture: DragGesture::new(pointer_id, x),
+            gesture: DragGesture::new(pointer_id, x, y),
         };
     }
 
     #[allow(clippy::cast_precision_loss)]
-    fn handle_pointer_move(&mut self, pointer_id: u64, x: f32) {
+    fn handle_pointer_move(&mut self, pointer_id: u64, x: f32, y: f32) {
         if self.transition_kind == TransitionKind::None {
             return;
         }
@@ -523,7 +557,7 @@ impl DemoApplication {
 
         match &mut self.transition_state {
             TransitionState::TrackingSlop { gesture } => {
-                gesture.record_move(x);
+                gesture.record_move(x, y);
                 let delta = gesture.horizontal_delta();
                 if delta.abs() >= self.transition_policy.slop_threshold {
                     let intended_direction = if delta < 0.0 {
@@ -565,7 +599,7 @@ impl DemoApplication {
                 velocity,
                 gesture,
             } => {
-                gesture.record_move(x);
+                gesture.record_move(x, y);
                 let delta = gesture.horizontal_delta();
 
                 let intended_direction = if delta < 0.0 {
@@ -689,10 +723,11 @@ impl DemoApplication {
                 self.trigger_keyboard_turn(PageDirection::Previous);
             }
             KeyCode::KeyT => {
-                // Toggle transition kind between None and Slide
+                // Toggle transition kind between None, Slide, and Curl
                 self.transition_kind = match self.transition_kind {
                     TransitionKind::None => TransitionKind::Slide,
-                    TransitionKind::Slide => TransitionKind::None,
+                    TransitionKind::Slide => TransitionKind::Curl,
+                    TransitionKind::Curl => TransitionKind::None,
                 };
                 self.dirty = DirtyState::Scene;
                 if let Some(w) = &self.window {
@@ -821,7 +856,7 @@ impl ApplicationHandler for DemoApplication {
             WindowEvent::CursorMoved { position, .. } => {
                 self.cursor_position = Some(position);
                 if self.active_pointer_id == Some(0) {
-                    self.handle_pointer_move(0, position.x as f32);
+                    self.handle_pointer_move(0, position.x as f32, position.y as f32);
                 }
             }
             WindowEvent::MouseInput {
@@ -830,8 +865,8 @@ impl ApplicationHandler for DemoApplication {
                 ..
             } => match state {
                 ElementState::Pressed => {
-                    let x = self.cursor_position.map_or(0.0, |p| p.x as f32);
-                    self.handle_pointer_down(0, x);
+                    let pos = self.cursor_position.unwrap_or(PhysicalPosition::new(0.0, 0.0));
+                    self.handle_pointer_down(0, pos.x as f32, pos.y as f32);
                 }
                 ElementState::Released => {
                     self.handle_pointer_up(0);
@@ -839,10 +874,10 @@ impl ApplicationHandler for DemoApplication {
             },
             WindowEvent::Touch(touch) => match touch.phase {
                 winit::event::TouchPhase::Started => {
-                    self.handle_pointer_down(touch.id, touch.location.x as f32);
+                    self.handle_pointer_down(touch.id, touch.location.x as f32, touch.location.y as f32);
                 }
                 winit::event::TouchPhase::Moved => {
-                    self.handle_pointer_move(touch.id, touch.location.x as f32);
+                    self.handle_pointer_move(touch.id, touch.location.x as f32, touch.location.y as f32);
                 }
                 winit::event::TouchPhase::Ended => {
                     self.handle_pointer_up(touch.id);

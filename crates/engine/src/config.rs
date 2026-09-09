@@ -14,3 +14,13 @@ pub struct ReaderConfig {
     pub style: ReaderStyle,
     pub locator: Option<LocatorV1>,
 }
+
+impl ReaderConfig {
+    pub fn new(width: u32, height: u32) -> Self {
+        Self {
+            viewport: LayoutViewport { width, height },
+            style: ReaderStyle::default(),
+            locator: None,
+        }
+    }
+}

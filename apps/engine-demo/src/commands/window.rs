@@ -4,7 +4,7 @@ use winit::event_loop::EventLoop;
 use crate::application::DemoApplication;
 use crate::metrics::MetricsFormat;
 use crate::render::scene_cache::ResourceProfile;
-use crate::transition::TransitionKind;
+use rebook_engine::transition::TransitionKind;
 
 pub fn run(
     book_path: &Path,

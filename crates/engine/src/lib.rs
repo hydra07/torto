@@ -1,8 +1,11 @@
 mod book;
 mod config;
 mod error;
+pub mod frame;
 mod reader;
+pub mod transition;
 
+#[cfg(not(target_arch = "wasm32"))]
 use std::path::Path;
 use std::sync::Arc;
 
@@ -12,11 +15,15 @@ use rebook_layout::ReaderFontBlob;
 pub use book::EngineBook;
 pub use config::{EngineConfig, ReaderConfig};
 pub use error::EngineError;
-pub use reader::EngineReader;
+pub use frame::{FrameTransition, OverlaySet, PageFrameKey, PreparedReaderFrame, SpreadFrameKey};
+pub use reader::{EngineAnimationState, EngineNavigationState, EngineReader};
+pub use rebook_publication::LocatorV1;
 pub use rebook_reader::{
-    NavigationAttempt, NavigationPreparation, NavigationResult, NavigationToken, PageDirection,
-    PreparedNavigation, ReaderError, ReaderPosition, ReaderSession, ReaderSnapshot, ReaderSpread,
+    NavigationAttempt, NavigationOutcome, NavigationPreparation, NavigationResult, NavigationToken,
+    PageDirection, PreparedNavigation, ReaderError, ReaderPosition, ReaderSession, ReaderSnapshot,
+    ReaderSpread, TickResult, TocViewItem,
 };
+pub use transition::PointerGestureResult;
 
 pub struct Engine {
     fonts: Arc<[ReaderFontBlob]>,
@@ -42,6 +49,7 @@ impl Engine {
         Ok(EngineBook::new(opened))
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn open_file(&self, path: impl AsRef<Path>) -> Result<EngineBook, EngineError> {
         let path = path.as_ref();
         let bytes = std::fs::read(path)?;
@@ -73,7 +81,12 @@ impl Engine {
                 Arc::clone(&self.fonts),
             )?
         };
-        Ok(EngineReader::new(session))
+        let mut reader = EngineReader::new(session);
+        // Warm the adjacent reading units as an engine policy. Native builds
+        // execute this on the worker; single-threaded WASM advances it through
+        // `EngineReader::tick` when the platform scheduler grants a time slice.
+        reader.prefetch_adjacent()?;
+        Ok(reader)
     }
 }
 
@@ -109,7 +122,7 @@ mod tests {
                 blocks: vec![Block::Text(TextBlock {
                     kind: TextBlockKind::Paragraph,
                     content: vec![Inline::Text(TextRun {
-                        text: "Hello world from engine facade!".into(),
+                        text: "Hello world from engine facade! ".repeat(200),
                         style: TextStyle::default(),
                         link: None,
                     })],
@@ -190,5 +203,110 @@ mod tests {
         // Test navigation preparation on facade
         let boundary = reader.prepare_navigation(PageDirection::Previous).unwrap();
         assert!(matches!(boundary, NavigationPreparation::Boundary));
+    }
+
+    #[test]
+    fn test_book_source_and_reader_lifetime() {
+        let source = Arc::new(InMemorySource::new());
+        let weak_source = Arc::downgrade(&source);
+
+        {
+            let session = ReaderSession::open_with_fonts(
+                source,
+                LayoutViewport {
+                    width: 800,
+                    height: 1000,
+                },
+                ReaderStyle::default(),
+                Arc::default(),
+            )
+            .unwrap();
+            let reader = EngineReader::new(session);
+            assert_eq!(reader.book().metadata.title, "Test Book");
+            assert!(weak_source.upgrade().is_some());
+        }
+
+        // Reader and session dropped, weak source count should be zero
+        assert!(weak_source.upgrade().is_none());
+    }
+
+    #[test]
+    fn test_prepared_reader_frame() {
+        let source: Arc<dyn BookSource> = Arc::new(InMemorySource::new());
+        let session = ReaderSession::open_with_fonts(
+            source,
+            LayoutViewport {
+                width: 800,
+                height: 1000,
+            },
+            ReaderStyle::default(),
+            Arc::default(),
+        )
+        .unwrap();
+        let mut reader = EngineReader::new(session);
+        let frame = reader.frame().unwrap();
+
+        assert_eq!(frame.viewport.width, 800);
+        assert_eq!(frame.viewport.height, 1000);
+        assert_eq!(frame.key.width, 800);
+        assert_eq!(frame.key.height, 1000);
+        assert_eq!(frame.transition, FrameTransition::None);
+        assert_eq!(frame.transition_kind, transition::TransitionKind::Curl);
+        assert!(!frame.is_transitioning());
+        assert!(!frame.requires_next_frame);
+    }
+
+    #[test]
+    fn interactive_curl_commits_only_after_settle_finishes() {
+        let source: Arc<dyn BookSource> = Arc::new(InMemorySource::new());
+        let session = ReaderSession::open_with_fonts(
+            source,
+            LayoutViewport {
+                width: 320,
+                height: 240,
+            },
+            ReaderStyle::default(),
+            Arc::default(),
+        )
+        .unwrap();
+        let mut reader = EngineReader::new(session);
+        let initial = reader.current_position();
+
+        reader.pointer_down(1, 290.0, 100.0, 0.0);
+        assert_eq!(
+            reader.pointer_move(1, 80.0, 102.0, 120.0).unwrap(),
+            PointerGestureResult::Claimed
+        );
+        let drag_frame = reader.frame().unwrap();
+        assert!(matches!(
+            drag_frame.transition,
+            FrameTransition::Curl {
+                direction: PageDirection::Next,
+                progress,
+                ..
+            } if progress > 0.5
+        ));
+        assert_eq!(reader.current_position(), initial);
+
+        assert_eq!(
+            reader.pointer_up(1, 40.0, 102.0, 160.0).unwrap(),
+            PointerGestureResult::Claimed
+        );
+        let mut moved = false;
+        for step in 1..=80 {
+            let _ = reader.tick(std::time::Duration::from_millis(10));
+            if reader.animation_step(160.0 + f64::from(step * 16)).unwrap()
+                == EngineAnimationState::Moved
+            {
+                moved = true;
+                break;
+            }
+        }
+        assert!(moved);
+        assert_ne!(reader.current_position(), initial);
+        assert!(matches!(
+            reader.frame().unwrap().transition,
+            FrameTransition::None
+        ));
     }
 }

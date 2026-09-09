@@ -585,6 +585,11 @@ impl PageDisplayList {
         self.paint_background_with_transform(scene, Affine::IDENTITY);
     }
 
+    /// Paints only the page background at a horizontal spread/transition offset.
+    pub fn paint_background_at(&self, scene: &mut impl PaintScene, offset_x: f32) {
+        self.paint_background_with_transform(scene, Affine::translate((f64::from(offset_x), 0.0)));
+    }
+
     /// Paints retained page content without covering content already composed
     /// into the same spread.
     pub fn paint_content_at(&self, scene: &mut impl PaintScene, offset_x: f32) {
