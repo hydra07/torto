@@ -5,6 +5,10 @@ use thiserror::Error;
 
 #[derive(Debug, Error)]
 pub enum EngineError {
+    #[error("no book is open")]
+    NoBookOpen,
+    #[error("search failed: {0}")]
+    Search(String),
     #[error(transparent)]
     Format(#[from] FormatError),
     #[error(transparent)]

@@ -4032,6 +4032,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "rebook-android-host"
+version = "0.5.0"
+dependencies = [
+ "rebook-engine",
+]
+
+[[package]]
 name = "rebook-desktop"
 version = "0.5.0"
 dependencies = [

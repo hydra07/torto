@@ -9,7 +9,8 @@ license.workspace = true
 [features]
 default = ["formats-full"]
 formats-full = ["rebook-formats/all-formats"]
-web-epub = ["rebook-formats/epub"]
+epub = ["rebook-formats/epub"]
+web-epub = ["epub"]
 
 [dependencies]
 rebook-formats = { path = "../formats", default-features = false }

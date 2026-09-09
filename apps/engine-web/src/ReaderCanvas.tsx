@@ -69,7 +69,11 @@ export function ReaderCanvas({
     // Reader appearance and typography state
     const [fontSize, setFontSize] = useState<number>(20);
     const [lineHeight, setLineHeight] = useState<number>(1.5);
-    const [marginLevel, setMarginLevel] = useState<"compact" | "normal" | "wide">("normal");
+    const [fontFamily, setFontFamily] = useState<"serif" | "sans-serif" | "system">("serif");
+    const [paragraphIndent, setParagraphIndent] = useState<number>(2.0);
+    const [marginLevel, setMarginLevel] = useState<"compact" | "normal" | "wide" | "custom">("normal");
+    const [customMarginH, setCustomMarginH] = useState<number>(44);
+    const [customMarginV, setCustomMarginV] = useState<number>(24);
     const [theme, setTheme] = useState<"light" | "sepia" | "dark" | "black">("light");
     const [spreadMode, setSpreadMode] = useState<"single" | "double" | "scroll">("double");
     const readerRef = useRef<any>(null);
@@ -198,6 +202,9 @@ export function ReaderCanvas({
         let alive = true;
         let observer: ResizeObserver | undefined;
         let resizeFrame = 0;
+        let visibilityHandler: (() => void) | undefined;
+        let pageHideHandler: (() => void) | undefined;
+        let pageShowHandler: (() => void) | undefined;
 
         (async () => {
             try {
@@ -227,6 +234,22 @@ export function ReaderCanvas({
                     return;
                 }
                 readerRef.current = reader;
+                visibilityHandler = () => {
+                    reader.lifecycle(
+                        document.hidden ? "suspended" : "resumed",
+                        performance.now(),
+                    );
+                    if (!document.hidden) reader.render_frame();
+                };
+                pageHideHandler = () =>
+                    reader.lifecycle("surface-lost", performance.now());
+                pageShowHandler = () => {
+                    reader.lifecycle("surface-restored", performance.now());
+                    reader.render_frame();
+                };
+                document.addEventListener("visibilitychange", visibilityHandler);
+                window.addEventListener("pagehide", pageHideHandler);
+                window.addEventListener("pageshow", pageShowHandler);
                 setRendererKind(
                     reader.renderer_kind() === "cpu" ? "cpu" : "webgpu",
                 );
@@ -235,8 +258,11 @@ export function ReaderCanvas({
                 const result = reader.open_bytes(
                     bytes,
                     fileName,
-                    Math.round(logicalWidth * dpr),
-                    Math.round(logicalHeight * dpr),
+                    logicalWidth,
+                    logicalHeight,
+                    ref.current.width,
+                    ref.current.height,
+                    dpr,
                 );
                 if (locatorStorageKey) {
                     const savedLocator =
@@ -297,7 +323,13 @@ export function ReaderCanvas({
                             ref.current.width = targetWidth;
                             ref.current.height = targetHeight;
                         }
-                        readerRef.current.resize(targetWidth, targetHeight);
+                        readerRef.current.resize(
+                            lWidth,
+                            lHeight,
+                            targetWidth,
+                            targetHeight,
+                            dpr,
+                        );
                         try {
                             readerRef.current.render_frame();
                             setSelectedText("");
@@ -334,6 +366,11 @@ export function ReaderCanvas({
                 selectionFrameRef.current = undefined;
             }
             observer?.disconnect();
+            if (visibilityHandler) {
+                document.removeEventListener("visibilitychange", visibilityHandler);
+            }
+            if (pageHideHandler) window.removeEventListener("pagehide", pageHideHandler);
+            if (pageShowHandler) window.removeEventListener("pageshow", pageShowHandler);
             cancelAnimationFrame(resizeFrame);
             if (readerRef.current) {
                 readerRef.current.close();
@@ -505,7 +542,39 @@ export function ReaderCanvas({
         }
     };
 
-    const changeMargin = (level: "compact" | "normal" | "wide") => {
+    const changeFontFamily = (family: "serif" | "sans-serif" | "system") => {
+        const reader = readerRef.current;
+        if (!reader) return;
+        setFontFamily(family);
+        try {
+            if (family === "serif") {
+                reader.set_font_family("serif", "Literata");
+            } else if (family === "sans-serif") {
+                reader.set_font_family("sans-serif", "system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif");
+            } else {
+                reader.set_font_family("other", "");
+            }
+            reader.render_frame();
+            syncReaderState(reader);
+        } catch (error) {
+            console.error("Change font family failed:", error);
+        }
+    };
+
+    const changeParagraphIndent = (indentEm: number) => {
+        const reader = readerRef.current;
+        if (!reader) return;
+        setParagraphIndent(indentEm);
+        try {
+            reader.set_paragraph_indent(indentEm);
+            reader.render_frame();
+            syncReaderState(reader);
+        } catch (error) {
+            console.error("Change paragraph indent failed:", error);
+        }
+    };
+
+    const changeMargin = (level: "compact" | "normal" | "wide" | "custom", customH?: number, customV?: number) => {
         const reader = readerRef.current;
         if (!reader) return;
         setMarginLevel(level);
@@ -513,6 +582,7 @@ export function ReaderCanvas({
             compact: { h: 20, t: 0, b: 16 },
             normal: { h: 44, t: 0, b: 24 },
             wide: { h: 72, t: 10, b: 32 },
+            custom: { h: customH ?? customMarginH, t: 0, b: customV ?? customMarginV },
         };
         const m = marginMap[level];
         try {
@@ -880,7 +950,15 @@ export function ReaderCanvas({
                     </div>
 
                     <div className="settings-section">
-                        <div className="settings-section-title">Typography & Size</div>
+                        <div className="settings-section-title">Typography & Style</div>
+                        <div className="settings-row">
+                            <span>Font Family</span>
+                            <div className="settings-btn-group">
+                                <button className={`settings-btn ${fontFamily === "serif" ? "active" : ""}`} onClick={() => changeFontFamily("serif")}>Serif</button>
+                                <button className={`settings-btn ${fontFamily === "sans-serif" ? "active" : ""}`} onClick={() => changeFontFamily("sans-serif")}>Sans</button>
+                                <button className={`settings-btn ${fontFamily === "system" ? "active" : ""}`} onClick={() => changeFontFamily("system")}>System</button>
+                            </div>
+                        </div>
                         <div className="settings-row">
                             <span>Font Size</span>
                             <div className="settings-btn-group">
@@ -893,8 +971,18 @@ export function ReaderCanvas({
                             <span>Line Height</span>
                             <div className="settings-btn-group">
                                 <button className={`settings-btn ${lineHeight === 1.2 ? "active" : ""}`} onClick={() => changeLineHeight(1.2)}>1.2</button>
-                                <button className={`settings-btn ${lineHeight === 1.5 ? "active" : ""}`} onClick={() => changeLineHeight(1.5)}>1.5</button>
+                                <button className={`settings-btn ${lineHeight === 1.4 ? "active" : ""}`} onClick={() => changeLineHeight(1.4)}>1.4</button>
+                                <button className={`settings-btn ${lineHeight === 1.6 ? "active" : ""}`} onClick={() => changeLineHeight(1.6)}>1.6</button>
                                 <button className={`settings-btn ${lineHeight === 1.8 ? "active" : ""}`} onClick={() => changeLineHeight(1.8)}>1.8</button>
+                                <button className={`settings-btn ${lineHeight === 2.0 ? "active" : ""}`} onClick={() => changeLineHeight(2.0)}>2.0</button>
+                            </div>
+                        </div>
+                        <div className="settings-row">
+                            <span>Paragraph Indent</span>
+                            <div className="settings-btn-group">
+                                <button className={`settings-btn ${paragraphIndent === 0.0 ? "active" : ""}`} onClick={() => changeParagraphIndent(0.0)}>None</button>
+                                <button className={`settings-btn ${paragraphIndent === 1.5 ? "active" : ""}`} onClick={() => changeParagraphIndent(1.5)}>1.5em</button>
+                                <button className={`settings-btn ${paragraphIndent === 2.0 ? "active" : ""}`} onClick={() => changeParagraphIndent(2.0)}>2.0em</button>
                             </div>
                         </div>
                     </div>

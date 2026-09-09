@@ -12,9 +12,11 @@ use std::time::Duration;
 
 use cpu_surface::CpuSurfaceRenderer;
 use rebook_engine::{
-    Engine, EngineAnimationState, EngineConfig, EngineNavigationState, EngineReader, LocatorV1,
-    PageDirection, PointerGestureResult, ReaderConfig, ReaderStyle, Rgba, SourceRange, SpreadMode,
-    TickResult,
+    AppLifecycleEvent, EngineAnimationState, EngineConfig, EngineNavigationState, EngineReader,
+    EngineRuntime, LocatorV1, MemoryPressure, PageDirection, ParagraphIndentMode,
+    PlatformDirective, PointerEvent, PointerGestureResult, PointerKind, PointerPhase,
+    ReaderDefaultFont, ReaderStyle, Rgba, SourceRange, SpreadMode, TickResult, TypesettingMode,
+    ViewportMetrics,
 };
 use rebook_layout::ReaderFontBlob;
 use rebook_vello_backend::{ReaderCompositor, SpreadSceneCache, frame_images};
@@ -25,9 +27,7 @@ use web_sys::HtmlCanvasElement;
 /// Thin browser-facing facade. Parsing and pagination stay in the Rust engine;
 /// JavaScript only supplies bytes and viewport events.
 struct WebReaderState {
-    engine: Engine,
-    reader: Option<EngineReader>,
-    viewport: (u32, u32),
+    runtime: EngineRuntime,
     renderer: Option<BrowserRenderer>,
     scene_cache: SpreadSceneCache,
 }
@@ -47,9 +47,10 @@ impl WebReaderState {
     pub fn new() -> Self {
         console_error_panic_hook::set_once();
         Self {
-            engine: web_engine(),
-            reader: None,
-            viewport: (1200, 760),
+            runtime: EngineRuntime::new(
+                web_engine_config(),
+                ViewportMetrics::from_logical_size(1200, 760, 1.0),
+            ),
             renderer: None,
             scene_cache: SpreadSceneCache::new(5),
         }
@@ -92,50 +93,63 @@ impl WebReaderState {
         &mut self,
         bytes: &[u8],
         file_name: &str,
-        width: u32,
-        height: u32,
+        logical_width: u32,
+        logical_height: u32,
+        surface_width: u32,
+        surface_height: u32,
+        scale_factor: f32,
     ) -> Result<JsValue, JsValue> {
         self.close();
-        self.viewport = (width, height);
-        let book = self
-            .engine
+        let viewport = ViewportMetrics::new(
+            logical_width,
+            logical_height,
+            surface_width,
+            surface_height,
+            scale_factor,
+        );
+        self.runtime
+            .resize(viewport)
+            .map_err(|e| JsValue::from_str(&e.to_string()))?;
+        let summary = self
+            .runtime
             .open_bytes(Arc::<[u8]>::from(bytes), file_name)
             .map_err(|e| JsValue::from_str(&e.to_string()))?;
-        let metadata = book.source().book().metadata.clone();
-        let reader = self
-            .engine
-            .create_reader(&book, ReaderConfig::new(width, height))
-            .map_err(|e| JsValue::from_str(&e.to_string()))?;
-        self.reader = Some(reader);
         self.scene_cache.invalidate_all();
-        serde_json::to_string(&serde_json::json!({ "title": metadata.title, "sections": book.source().book().sections.len(), "progress": 0.0 })).map(|json| JsValue::from_str(&json)).map_err(|e| JsValue::from_str(&e.to_string()))
+        serde_json::to_string(&serde_json::json!({ "title": summary.title, "sections": summary.section_count, "progress": 0.0 })).map(|json| JsValue::from_str(&json)).map_err(|e| JsValue::from_str(&e.to_string()))
     }
 
-    pub fn resize(&mut self, width: u32, height: u32) -> Result<(), JsValue> {
-        let reader = self
-            .reader
-            .as_mut()
-            .ok_or_else(|| JsValue::from_str("no book is open"))?;
-        reader.cancel_pending_navigation();
-        self.viewport = (width, height);
+    pub fn resize(
+        &mut self,
+        logical_width: u32,
+        logical_height: u32,
+        surface_width: u32,
+        surface_height: u32,
+        scale_factor: f32,
+    ) -> Result<(), JsValue> {
+        let viewport = ViewportMetrics::new(
+            logical_width,
+            logical_height,
+            surface_width,
+            surface_height,
+            scale_factor,
+        );
         if let Some(renderer) = self.renderer.as_mut() {
             match renderer {
-                BrowserRenderer::Gpu(renderer) => renderer.resize(width, height),
-                BrowserRenderer::Cpu(renderer) => renderer.resize(width, height),
+                BrowserRenderer::Gpu(renderer) => renderer.resize(surface_width, surface_height),
+                BrowserRenderer::Cpu(renderer) => renderer.resize(surface_width, surface_height),
             }
         }
         self.scene_cache.invalidate_all();
-        reader
-            .resize_viewport(width, height)
-            .map(|_| ())
+        self.runtime
+            .resize(viewport)
             .map_err(|e| JsValue::from_str(&e.to_string()))
     }
 
     /// Renders the current frame onto the attached WebGPU surface via Vello.
     pub fn render_frame(&mut self) -> Result<(), JsValue> {
         let reader = self
-            .reader
-            .as_mut()
+            .runtime
+            .reader_mut()
             .ok_or_else(|| JsValue::from_str("no book is open"))?;
         let renderer = self
             .renderer
@@ -173,7 +187,9 @@ impl WebReaderState {
                                 rebook_vello_backend::CurlDirection::Previous
                             }
                         };
-                        let aspect_ratio = self.viewport.1 as f32 / (self.viewport.0 as f32).max(1.0);
+                        let viewport = self.runtime.viewport().layout;
+                        let aspect_ratio =
+                            viewport.height as f32 / (viewport.width as f32).max(1.0);
                         let curl_config = rebook_vello_backend::Curl3dConfig {
                             aspect_ratio,
                             ..Default::default()
@@ -195,12 +211,7 @@ impl WebReaderState {
                                 drag_current_uv: glam::Vec2::new(current_x_ratio, current_y_ratio),
                             }
                         };
-                        renderer.render_curl_3d(
-                            &current_scene,
-                            &dest_scene,
-                            gesture,
-                            curl_config,
-                        )
+                        renderer.render_curl_3d(&current_scene, &dest_scene, gesture, curl_config)
                     } else {
                         let scene = ReaderCompositor::compose_frame(&mut self.scene_cache, &frame);
                         renderer.render_frame(&scene)
@@ -220,10 +231,7 @@ impl WebReaderState {
     /// Returns 0 for Idle, 1 for `MoreWorkRemaining`.
     #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
     pub fn tick(&mut self, budget_ms: f64) -> Result<u8, JsValue> {
-        let reader = self
-            .reader
-            .as_mut()
-            .ok_or_else(|| JsValue::from_str("no book is open"))?;
+        let reader = self.reader_mut()?;
         let budget = Duration::from_micros((budget_ms.max(0.0) * 1000.0) as u64);
         let res = reader
             .tick(budget)
@@ -235,21 +243,19 @@ impl WebReaderState {
     }
 
     pub fn close(&mut self) {
-        if let Some(reader) = self.reader.as_mut() {
+        if let Some(reader) = self.runtime.reader_mut() {
             reader.cancel_pending_navigation();
         }
-        self.reader = None;
+        self.runtime.close();
+        self.scene_cache.invalidate_all();
     }
 
     pub fn is_open(&self) -> bool {
-        self.reader.is_some()
+        self.runtime.is_open()
     }
 
     pub fn toc_json(&self) -> Result<JsValue, JsValue> {
-        let reader = self
-            .reader
-            .as_ref()
-            .ok_or_else(|| JsValue::from_str("no book is open"))?;
+        let reader = self.reader()?;
         let items = reader.toc_items().iter().map(|item| serde_json::json!({ "id": item.id, "label": item.label, "depth": item.depth })).collect::<Vec<_>>();
         serde_json::to_string(&items)
             .map(|value| JsValue::from_str(&value))
@@ -259,10 +265,7 @@ impl WebReaderState {
     /// Returns browser-facing reading state. The shell presents this data but
     /// does not derive progression or active TOC ancestry itself.
     pub fn state_json(&self) -> Result<JsValue, JsValue> {
-        let reader = self
-            .reader
-            .as_ref()
-            .ok_or_else(|| JsValue::from_str("no book is open"))?;
+        let reader = self.reader()?;
         let snapshot = reader.snapshot();
         let location = snapshot.location;
         let value = serde_json::json!({
@@ -281,10 +284,7 @@ impl WebReaderState {
     }
 
     pub fn locator_json(&self) -> Result<JsValue, JsValue> {
-        let reader = self
-            .reader
-            .as_ref()
-            .ok_or_else(|| JsValue::from_str("no book is open"))?;
+        let reader = self.reader()?;
         let value = serde_json::to_value(reader.current_locator())
             .map_err(|e| JsValue::from_str(&e.to_string()))?;
         json_to_js(&value)
@@ -293,10 +293,7 @@ impl WebReaderState {
     pub fn restore_locator_json(&mut self, locator_json: &str) -> Result<(), JsValue> {
         let locator: LocatorV1 = serde_json::from_str(locator_json)
             .map_err(|e| JsValue::from_str(&format!("invalid locator: {e}")))?;
-        let reader = self
-            .reader
-            .as_mut()
-            .ok_or_else(|| JsValue::from_str("no book is open"))?;
+        let reader = self.reader_mut()?;
         reader
             .restore_locator(&locator)
             .map_err(|e| JsValue::from_str(&e.to_string()))?;
@@ -305,10 +302,7 @@ impl WebReaderState {
     }
 
     pub fn navigate_toc(&mut self, id: &str) -> Result<(), JsValue> {
-        let reader = self
-            .reader
-            .as_mut()
-            .ok_or_else(|| JsValue::from_str("no book is open"))?;
+        let reader = self.reader_mut()?;
         reader
             .go_to_toc_item(id)
             .map_err(|e| JsValue::from_str(&e.to_string()))?;
@@ -317,10 +311,7 @@ impl WebReaderState {
     }
 
     pub fn search(&self, query: &str, max_results: usize) -> Result<JsValue, JsValue> {
-        let reader = self
-            .reader
-            .as_ref()
-            .ok_or_else(|| JsValue::from_str("no book is open"))?;
+        let reader = self.reader()?;
         let results = reader
             .search(query, max_results)
             .map_err(|e| JsValue::from_str(&e))?;
@@ -358,10 +349,7 @@ impl WebReaderState {
     }
 
     pub fn style_json(&self) -> Result<JsValue, JsValue> {
-        let reader = self
-            .reader
-            .as_ref()
-            .ok_or_else(|| JsValue::from_str("no book is open"))?;
+        let reader = self.reader()?;
         let style = reader.session().style();
         serde_json::to_string(&style)
             .map(|json| JsValue::from_str(&json))
@@ -394,8 +382,59 @@ impl WebReaderState {
     pub fn set_line_height(&mut self, line_height: f32) -> Result<(), JsValue> {
         let reader = self.reader_mut()?;
         let mut style = reader.session().style();
+        style.typesetting.mode = TypesettingMode::Unified;
         style.typesetting.body_line_height = line_height;
         style.typesetting.normalize();
+        reader
+            .set_style(style)
+            .map_err(|e| JsValue::from_str(&e.to_string()))?;
+        self.scene_cache.invalidate_all();
+        Ok(())
+    }
+
+    pub fn set_paragraph_indent(&mut self, indent_em: f32) -> Result<(), JsValue> {
+        let reader = self.reader_mut()?;
+        let mut style = reader.session().style();
+        style.typesetting.mode = TypesettingMode::Unified;
+        style.typesetting.paragraph_indent_mode = ParagraphIndentMode::Custom;
+        style.typesetting.paragraph_indent_em = indent_em;
+        style.typesetting.normalize();
+        reader
+            .set_style(style)
+            .map_err(|e| JsValue::from_str(&e.to_string()))?;
+        self.scene_cache.invalidate_all();
+        Ok(())
+    }
+
+    pub fn set_font_family(&mut self, category: &str, family: &str) -> Result<(), JsValue> {
+        let reader = self.reader_mut()?;
+        let mut style = reader.session().style();
+        match category {
+            "serif" => {
+                style.typography.default_font = ReaderDefaultFont::Serif;
+                if !family.is_empty() {
+                    style.typography.serif_font = family.to_owned();
+                }
+            }
+            "sans-serif" | "sans" => {
+                style.typography.default_font = ReaderDefaultFont::SansSerif;
+                if !family.is_empty() {
+                    style.typography.sans_serif_font = family.to_owned();
+                }
+            }
+            "cjk" => {
+                if !family.is_empty() {
+                    style.typography.default_cjk_font = family.to_owned();
+                }
+            }
+            "other" | _ => {
+                style.typography.default_font = ReaderDefaultFont::Other;
+                if !family.is_empty() {
+                    style.typography.other_font = family.to_owned();
+                }
+            }
+        }
+        style.typography.normalize();
         reader
             .set_style(style)
             .map_err(|e| JsValue::from_str(&e.to_string()))?;
@@ -432,7 +471,15 @@ impl WebReaderState {
         Ok(())
     }
 
-    pub fn set_colors(&mut self, fg_r: u8, fg_g: u8, fg_b: u8, bg_r: u8, bg_g: u8, bg_b: u8) -> Result<(), JsValue> {
+    pub fn set_colors(
+        &mut self,
+        fg_r: u8,
+        fg_g: u8,
+        fg_b: u8,
+        bg_r: u8,
+        bg_g: u8,
+        bg_b: u8,
+    ) -> Result<(), JsValue> {
         let reader = self.reader_mut()?;
         let mut style = reader.session().style();
         style.foreground = Rgba {
@@ -457,10 +504,7 @@ impl WebReaderState {
     /// Returns retained-page diagnostics after pagination. This is the first
     /// browser-visible proof that the reader, not just the parser, is active.
     pub fn page_info(&mut self) -> Result<JsValue, JsValue> {
-        let reader = self
-            .reader
-            .as_mut()
-            .ok_or_else(|| JsValue::from_str("no book is open"))?;
+        let reader = self.reader_mut()?;
         let spread = reader
             .current_spread()
             .map_err(|e| JsValue::from_str(&e.to_string()))?;
@@ -478,10 +522,7 @@ impl WebReaderState {
     }
 
     pub fn page_text(&mut self) -> Result<JsValue, JsValue> {
-        let reader = self
-            .reader
-            .as_mut()
-            .ok_or_else(|| JsValue::from_str("no book is open"))?;
+        let reader = self.reader_mut()?;
         let spread = reader
             .current_spread()
             .map_err(|e| JsValue::from_str(&e.to_string()))?;
@@ -514,13 +555,7 @@ impl WebReaderState {
         y: f32,
         timestamp_ms: f64,
     ) -> Result<u8, JsValue> {
-        let reader = self.reader_mut()?;
-        Ok(pointer_result_code(reader.pointer_down(
-            u64::from(id),
-            x,
-            y,
-            timestamp_ms,
-        )))
+        self.handle_pointer(id, PointerPhase::Down, x, y, timestamp_ms)
     }
 
     pub fn pointer_move(
@@ -530,11 +565,7 @@ impl WebReaderState {
         y: f32,
         timestamp_ms: f64,
     ) -> Result<u8, JsValue> {
-        let reader = self.reader_mut()?;
-        reader
-            .pointer_move(u64::from(id), x, y, timestamp_ms)
-            .map(pointer_result_code)
-            .map_err(|e| JsValue::from_str(&e.to_string()))
+        self.handle_pointer(id, PointerPhase::Move, x, y, timestamp_ms)
     }
 
     pub fn pointer_up(
@@ -544,9 +575,27 @@ impl WebReaderState {
         y: f32,
         timestamp_ms: f64,
     ) -> Result<u8, JsValue> {
-        let reader = self.reader_mut()?;
-        reader
-            .pointer_up(u64::from(id), x, y, timestamp_ms)
+        self.handle_pointer(id, PointerPhase::Up, x, y, timestamp_ms)
+    }
+
+    fn handle_pointer(
+        &mut self,
+        id: u32,
+        phase: PointerPhase,
+        x: f32,
+        y: f32,
+        timestamp_ms: f64,
+    ) -> Result<u8, JsValue> {
+        self.reader_mut()?
+            .handle_pointer(PointerEvent {
+                id: u64::from(id),
+                phase,
+                kind: PointerKind::Unknown,
+                x,
+                y,
+                timestamp_ms,
+                pressure: 1.0,
+            })
             .map(pointer_result_code)
             .map_err(|e| JsValue::from_str(&e.to_string()))
     }
@@ -559,6 +608,34 @@ impl WebReaderState {
 
     pub fn focus_lost(&mut self, timestamp_ms: f64) -> Result<u8, JsValue> {
         self.pointer_cancel(timestamp_ms)
+    }
+
+    pub fn lifecycle(&mut self, state: &str, timestamp_ms: f64) -> Result<(), JsValue> {
+        let event = match state {
+            "resumed" => AppLifecycleEvent::Resumed,
+            "suspended" => AppLifecycleEvent::Suspended,
+            "surface-lost" => AppLifecycleEvent::SurfaceLost,
+            "surface-restored" => AppLifecycleEvent::SurfaceRestored,
+            _ => return Err(JsValue::from_str("unknown lifecycle state")),
+        };
+        let directive = self.runtime.lifecycle(event, timestamp_ms);
+        if matches!(
+            directive,
+            PlatformDirective::ReleaseTransientRenderResources
+        ) {
+            self.scene_cache.invalidate_all();
+        }
+        Ok(())
+    }
+
+    pub fn memory_pressure(&mut self, critical: bool) {
+        let level = if critical {
+            MemoryPressure::Critical
+        } else {
+            MemoryPressure::Moderate
+        };
+        self.runtime.memory_pressure(level);
+        self.scene_cache.invalidate_all();
     }
 
     pub fn selection_start(&mut self, x: f32, y: f32) -> Result<bool, JsValue> {
@@ -586,10 +663,7 @@ impl WebReaderState {
     }
 
     pub fn selection_json(&self) -> Result<JsValue, JsValue> {
-        let reader = self
-            .reader
-            .as_ref()
-            .ok_or_else(|| JsValue::from_str("no book is open"))?;
+        let reader = self.reader()?;
         let value = reader.selection().map_or_else(
             || serde_json::json!({"text": "", "ranges": [], "rects": []}),
             |selection| {
@@ -625,10 +699,7 @@ impl WebReaderState {
     }
 
     fn navigation_step(&mut self, direction: PageDirection) -> Result<u8, JsValue> {
-        let reader = self
-            .reader
-            .as_mut()
-            .ok_or_else(|| JsValue::from_str("no book is open"))?;
+        let reader = self.reader_mut()?;
         reader
             .navigation_step(direction)
             .map(|state| match state {
@@ -640,13 +711,19 @@ impl WebReaderState {
     }
 
     fn reader_mut(&mut self) -> Result<&mut EngineReader, JsValue> {
-        self.reader
-            .as_mut()
+        self.runtime
+            .reader_mut()
+            .ok_or_else(|| JsValue::from_str("no book is open"))
+    }
+
+    fn reader(&self) -> Result<&EngineReader, JsValue> {
+        self.runtime
+            .reader()
             .ok_or_else(|| JsValue::from_str("no book is open"))
     }
 }
 
-fn web_engine() -> Engine {
+fn web_engine_config() -> EngineConfig {
     const LITERATA: &[u8] = include_bytes!("../../../assets/fonts/Literata-opsz-wght.ttf");
     const LITERATA_ITALIC: &[u8] =
         include_bytes!("../../../assets/fonts/Literata-Italic-opsz-wght.ttf");
@@ -654,9 +731,9 @@ fn web_engine() -> Engine {
         ReaderFontBlob::new(Arc::new(LITERATA)),
         ReaderFontBlob::new(Arc::new(LITERATA_ITALIC)),
     ];
-    Engine::new(EngineConfig {
+    EngineConfig {
         fonts: fonts.into(),
-    })
+    }
 }
 
 /// Browser-facing handle with a shared WASM ABI. Mutable engine state is
@@ -690,14 +767,42 @@ impl WebReader {
         &self,
         bytes: &[u8],
         file_name: &str,
-        width: u32,
-        height: u32,
+        logical_width: u32,
+        logical_height: u32,
+        surface_width: u32,
+        surface_height: u32,
+        scale_factor: f32,
     ) -> Result<JsValue, JsValue> {
-        self.with_inner_mut(|inner| inner.open_bytes(bytes, file_name, width, height))
+        self.with_inner_mut(|inner| {
+            inner.open_bytes(
+                bytes,
+                file_name,
+                logical_width,
+                logical_height,
+                surface_width,
+                surface_height,
+                scale_factor,
+            )
+        })
     }
 
-    pub fn resize(&self, width: u32, height: u32) -> Result<(), JsValue> {
-        self.with_inner_mut(|inner| inner.resize(width, height))
+    pub fn resize(
+        &self,
+        logical_width: u32,
+        logical_height: u32,
+        surface_width: u32,
+        surface_height: u32,
+        scale_factor: f32,
+    ) -> Result<(), JsValue> {
+        self.with_inner_mut(|inner| {
+            inner.resize(
+                logical_width,
+                logical_height,
+                surface_width,
+                surface_height,
+                scale_factor,
+            )
+        })
     }
 
     pub fn render_frame(&self) -> Result<(), JsValue> {
@@ -779,6 +884,14 @@ impl WebReader {
         self.with_inner_mut(|inner| inner.set_line_height(line_height))
     }
 
+    pub fn set_paragraph_indent(&self, indent_em: f32) -> Result<(), JsValue> {
+        self.with_inner_mut(|inner| inner.set_paragraph_indent(indent_em))
+    }
+
+    pub fn set_font_family(&self, category: &str, family: &str) -> Result<(), JsValue> {
+        self.with_inner_mut(|inner| inner.set_font_family(category, family))
+    }
+
     pub fn set_margins(&self, horizontal: f32, top: f32, bottom: f32) -> Result<(), JsValue> {
         self.with_inner_mut(|inner| inner.set_margins(horizontal, top, bottom))
     }
@@ -787,7 +900,15 @@ impl WebReader {
         self.with_inner_mut(|inner| inner.set_spread_mode(mode))
     }
 
-    pub fn set_colors(&self, fg_r: u8, fg_g: u8, fg_b: u8, bg_r: u8, bg_g: u8, bg_b: u8) -> Result<(), JsValue> {
+    pub fn set_colors(
+        &self,
+        fg_r: u8,
+        fg_g: u8,
+        fg_b: u8,
+        bg_r: u8,
+        bg_g: u8,
+        bg_b: u8,
+    ) -> Result<(), JsValue> {
         self.with_inner_mut(|inner| inner.set_colors(fg_r, fg_g, fg_b, bg_r, bg_g, bg_b))
     }
 
@@ -825,6 +946,17 @@ impl WebReader {
 
     pub fn focus_lost(&self, timestamp_ms: f64) -> Result<u8, JsValue> {
         self.with_inner_mut(|inner| inner.focus_lost(timestamp_ms))
+    }
+
+    pub fn lifecycle(&self, state: &str, timestamp_ms: f64) -> Result<(), JsValue> {
+        self.with_inner_mut(|inner| inner.lifecycle(state, timestamp_ms))
+    }
+
+    pub fn memory_pressure(&self, critical: bool) {
+        let _ = self.with_inner_mut(|inner| {
+            inner.memory_pressure(critical);
+            Ok(())
+        });
     }
 
     pub fn selection_start(&self, x: f32, y: f32) -> Result<bool, JsValue> {

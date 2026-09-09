@@ -8,6 +8,8 @@ Torto already has a native, pagination-first reader pipeline: format adapters ex
 
 The largest structural problem is physical, not conceptual: `crates/layout/src/lib.rs`, `crates/reader/src/lib.rs`, `crates/html/src/lib.rs`, and `crates/renderer/src/lib.rs` each contain several distinct subsystems, while `apps/desktop/src/reader/mod.rs` and `egui_view.rs` mix reusable reader presentation/compositing with egui, AI, persistence, and application policy. Inline tests make the headline sizes look worse, but layout and reader still contain roughly 4.1k and 4.3k production lines respectively.
 
+Source organization rule: keep the public crate root as an API façade; group production code by responsibility in purpose-named folders; move tests to sibling `tests.rs` (or a test folder) whenever they reach 40% of the implementation or exceed 1,000 lines. This keeps review, incremental compilation, and platform reuse predictable without introducing extra crates.
+
 Preserve the existing `publication`, `html`, `formats`, `layout`, `renderer`, and `reader` crates and their data flow. First perform mechanical internal module splits and isolate the Vello page-scene compositor from `DesktopReader`; do not redesign the IR or create many crates before those seams are visible.
 
 ## 2. Workspace Map
@@ -129,11 +131,11 @@ Current mapping is: source element → `ReadingIrParser::source_range` → `Text
 - CHM: `chm::{open_path,open_bytes}` reads the CHM directory/resources and TOC and implements `BookSource` directly; its `parse_section` loads a content document and invokes `rebook_html::parse_section`.
 - PDF: `pdf::{open,open_with_id,open_shared}` uses Hayro, creates one pre-paginated spine item per page, extracts catalog outlines through `pdf/catalog.rs`, and implements `BookSource` directly. `PdfPublication::parse_section` provides a page image block plus `FixedPageTextLayer`; rasterization and page resources are lazy and protected by `PdfResourceCache`/LRU.
 
-`rebook-html` is itself a mixed parser subsystem. `ReadingIrParser` handles structural block recovery, figures, notes, quotes, lists/tables, anchors and inline collection; `InlineCollector` normalizes whitespace and merges runs; `StyleSheet` implements the supported CSS cascade; helper families classify note links, captions, quotes, separators and navigation suppression. `parse_section_with_hints_and_image_classifier` is the full entry point. Production ends around line 3703; the remaining ~2.45k lines are dense parser tests.
+`rebook-html` is itself a mixed parser subsystem. `ReadingIrParser` handles structural block recovery, figures, notes, quotes, lists/tables, anchors and inline collection; `InlineCollector` normalizes whitespace and merges runs; `StyleSheet` implements the supported CSS cascade; helper families classify note links, captions, quotes, separators and navigation suppression. `parse_section_with_hints_and_image_classifier` is the full entry point. The implementation is grouped under `src/parser`, `src/inline`, and `src/css`; tests live in `src/tests.rs` so parser changes do not inflate the production entry point.
 
 ## 7. Layout and Typography
 
-`crates/layout/src/lib.rs` contains these conceptual subsystems:
+`crates/layout/src/lib.rs` exposes the stable layout API while implementation is grouped under `src/style`, `src/model`, `src/engine`, `src/text`, and `src/pagination`. Tests live in `src/tests.rs`. The conceptual subsystems are:
 
 - Configuration: `LayoutViewport`, `ReaderStyle`, `ReaderTypesetting`, `ReaderTypography`, `ReaderFontChoice`, `ReaderDefaultFont`, `TypesettingMode`, `LineBreakStrategy`, `ParagraphIndentMode`, and `SpreadMode`.
 - Font management: `LayoutEngine::{new,with_fonts,available_font_families,available_reader_font_families}`, `ReaderFontFamilies::repair_typography`, Fontique collection access through Parley, OpenType inspection through `read-fonts`, and resvg font configuration.
@@ -150,7 +152,7 @@ Spread geometry is chosen in layout: `resolve_page_geometry` sets `visible_pages
 
 ## 8. Retained Renderer
 
-`DisplayListCompiler::compile` in `crates/renderer/src/lib.rs` converts one immutable `PageLayout` into `PageDisplayList`. It creates private retained `DisplayCommand` variants (`Glyphs`, `Image`, `FillRect`, `FillRoundedRect`, `Rule`) and parallel semantic regions: shaped/fixed `TextRegion`, inline content, table, quote, and footnote regions.
+`DisplayListCompiler::compile` in `crates/renderer/src/lib.rs` converts one immutable `PageLayout` into `PageDisplayList`. The implementation is grouped under `src/display_list`, `src/text`, and `src/compiler`, with tests in `src/tests.rs`. It creates private retained `DisplayCommand` variants (`Glyphs`, `Image`, `FillRect`, `FillRoundedRect`, `Rule`) and parallel semantic regions: shaped/fixed `TextRegion`, inline content, table, quote, and footnote regions.
 
 Responsibilities are cleanly distinguishable even though they share one file:
 
@@ -396,24 +398,26 @@ Minimal cleanup before Slide:
 
 ## 19. Android Readiness
 
-The six core crates are largely Android-ready at the source architecture level: no egui/winit/wgpu/OS APIs leak into them, `ReaderSession` uses portable standard threads, and Cargo already enables wgpu Vulkan/GLES for `target_os = "android"` in the desktop manifest. That manifest flag does not itself provide an Android application.
+The core now has one explicit public runtime boundary. `rebook-engine::EngineRuntime` owns the engine/book/reader lifetime without owning a window, surface, filesystem, database, JNI or DOM object. `rebook-android-host` consumes the engine's full native format profile directly, while web retains an EPUB-only build profile for bundle size. `ViewportMetrics` keeps logical layout/input coordinates separate from physical render-target dimensions. Normalized pointer, lifecycle and memory-pressure events are shared by all platform shells.
+
+The Android dependency graph intentionally excludes egui, winit, WebAssembly, web-sys, reqwest, SQLite, keyring, tokio and desktop services. The Android crate is currently a native host rather than a packaged application: Kotlin/JNI, Gradle, Activity/Compose UI and the Android wgpu surface adapter remain to be added.
 
 Concrete coupling to address:
 
 - Font discovery: `LayoutEngine::new` calls system-font loading through resvg/Fontique-related contexts; Android will need explicit bundled/system font provisioning and lifecycle validation. `LayoutEngine::with_fonts` already supplies an injection route.
 - File access: `formats::open_file` assumes a path and `std::fs`; Android content URIs should read bytes/platform streams and call `open_bytes`. CHM's path-specialized route must be checked for large-file memory behavior.
 - GPU surface: `GpuState` is winit/egui desktop code. Android needs its own surface/event/lifecycle adapter while reusing Vello scene construction and `render_to_texture` concepts.
-- Input: keyboard/mouse/wheel/hover and egui gesture logic cannot be reused. Android requires touch gesture arbitration, density/insets and lifecycle-aware repaint scheduling.
+- Input: Android must translate `MotionEvent` into logical-pixel `PointerEvent` values. Gesture arbitration and curl state then remain engine-owned; density/insets and haptic feedback remain platform-owned.
 - Compositor ownership: reusable Vello scene/cache logic is tied to `DesktopReader`, egui rectangles/colors, highlights and focus UI. Introduce plain compositor inputs before sharing it.
-- Thread/lifecycle: `PrefetchWorker` owns a long-lived thread and joins on drop. Android pause/resume, memory pressure, cancellation latency and background restrictions need explicit shell coordination, though the worker has generation invalidation already.
-- Memory: fixed-page raster, segment cache, Vello scene cache and GPU target are separately bounded/managed. Android needs one memory-pressure policy and smaller defaults; avoid eagerly collecting `current_section_pages` for long PDF sections.
+- Thread/lifecycle: `EngineRuntime::lifecycle` cancels transient work when suspended or when the surface is lost, while preserving the open book across surface recreation.
+- Memory: `EngineRuntime::memory_pressure` reduces the reader segment cache and directs the host to release transient render resources. The future surface adapter must additionally release fixed-page textures and GPU targets.
 - Optional services: tokio, reqwest, SQLite, keyring, updater, sync and AI are desktop/application dependencies. They should not enter an Android minimal-reader kernel build.
 - Licensing: workspace packages are MIT, but a complete Android dependency/license review is still required. This audit did not verify every transitive dependency's license, so permissive compatibility must not be assumed from Cargo names.
 
 ## 20. Recommended Next Steps
 
-1. Mechanically split `rebook-reader`, `rebook-layout`, and `rebook-renderer` into the internal modules listed above, preserving root exports and behavior.
-2. Refactor desktop scene construction into an explicit-input `ReaderCompositor` module while leaving it inside `apps/desktop` until a second platform proves the crate boundary.
-3. Add source-integrity tests that traverse source range → layout → display list → hit/selection and recover block/section/TOC context, especially across normalized HTML and fixed-page text.
-4. Define and test a non-committing destination-spread preparation/commit contract in `ReaderSession`; then implement Slide against two retained spreads and compositor transforms.
-5. Build a minimal Android spike using `open_bytes`, explicit fonts, the existing core crates and an Android wgpu surface, excluding egui and all optional AI/sync/persistence features.
+1. Add the Kotlin/JNI and Gradle shell around `rebook-android-host`, keeping content URI resolution and permissions on the Kotlin side.
+2. Add a lifecycle-aware Android wgpu/Vello surface adapter that consumes `PreparedReaderFrame` and honors `PlatformDirective`.
+3. Mechanically split `rebook-reader`, `rebook-layout`, and `rebook-renderer` into the internal modules listed above, preserving root exports and behavior.
+4. Move desktop and web durable locator storage behind `ReaderStateStore` implementations so storage identity is publication-based everywhere.
+5. Add Android emulator/device tests for surface recreation, density changes, multi-touch cancellation, selection and low-memory callbacks.

@@ -1913,3 +1913,38 @@ Keep every commit buildable and reviewable:
 14. `Complete independent done audit`
 
 Do not combine format gating, scheduler redesign, compositor extraction, and WebGPU rendering into one unreviewable commit.
+
+# Part III — Android Platform Foundation
+
+## 47. Architecture Boundary
+
+Android must consume the same engine runtime as web and future native shells without importing desktop or browser APIs.
+
+- `rebook-engine` is the single public product API and owns engine/book/reader lifetime, parsing, layout, logical viewport, normalized pointer events, navigation, selection and lifecycle-safe reader behavior.
+- `rebook-android-host` uses the engine's full native format profile and is retained across Android surface recreation; web may keep an EPUB-only profile for bundle size.
+- Each platform owns settings persistence, local library storage, content resolution, permissions, UI, clipboard and external intents.
+- The Android render adapter owns the native surface and consumes `PreparedReaderFrame` through `rebook-vello-backend`.
+
+## 48. Foundation Status
+
+- [x] Separate logical layout size from physical render-target size with `ViewportMetrics`.
+- [x] Migrate the web engine bridge to the shared viewport contract and correct DPR behavior.
+- [x] Normalize pointer phase/type/coordinates in a platform-neutral `PointerEvent`.
+- [x] Add foreground, suspension and surface-loss lifecycle contracts.
+- [x] Add memory-pressure handling for reader and compositor caches.
+- [x] Keep storage, settings and UI contracts outside engine; platforms use engine values such as locators and styles directly.
+- [x] Add a full-format Android host crate with no desktop/web/service dependencies.
+- [x] Add the Android ARM64 Rust target and verify the native host cross-compiles.
+- [ ] Add the NDK toolchain and reproducible cargo-ndk build commands for a linked shared library.
+- [ ] Add Gradle/Kotlin/JNI packaging.
+- [ ] Add Android native wgpu/Vello surface creation and recovery.
+- [ ] Add Storage Access Framework and Room-backed platform adapters.
+- [ ] Add emulator/device lifecycle, touch, selection and memory-pressure tests.
+
+## 49. Android Acceptance Gate
+
+The first Android reader slice is complete only when it opens EPUB bytes from a content URI, renders a retained frame at the correct density, survives rotation/surface recreation without reopening the book, supports next/previous and interactive touch curl, restores a publication-keyed locator, and releases transient caches on Android low-memory callbacks.
+
+## 50. Engine Binary Contract
+
+Every platform-facing binary binding must wrap `EngineRuntime` as the single reader instance. Opening uses one `OpenReaderRequest` containing file bytes, viewport, style, locator, highlights and focus ranges so the engine paginates only once before first paint. Runtime bindings expose typed navigation, pointer, selection, style, search, TOC, locator, tick and frame operations. Platform code owns UI and durable storage and must not call lower engine implementation crates directly.

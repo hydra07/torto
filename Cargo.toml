@@ -1,5 +1,6 @@
 [workspace]
 members = [
+    "apps/android",
     "apps/desktop",
     "apps/engine-demo",
     "apps/inspect",

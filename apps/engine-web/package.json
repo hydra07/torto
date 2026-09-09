@@ -3,7 +3,7 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "scripts": { "build:wasm": "wasm-pack build ../../crates/engine-wasm --release --target web --out-dir ../../apps/engine-web/pkg && (command -v wasm-opt >/dev/null && wasm-opt -Oz --all-features pkg/rebook_engine_wasm_bg.wasm -o pkg/rebook_engine_wasm_bg.wasm || true)", "analyze:wasm": "ls -lh pkg/*.wasm && (command -v wasm-opt >/dev/null && wasm-opt -Oz --all-features pkg/rebook_engine_wasm_bg.wasm -o pkg/rebook_engine_wasm_bg.wasm || echo 'wasm-opt not installed; install Binaryen for further shrinking')", "dev": "vite", "build": "tsc -b && vite build", "preview": "vite preview" },
+  "scripts": { "build:wasm": "CARGO_TARGET_DIR=../../.build/web/cargo wasm-pack build ../../crates/engine-wasm --release --target web --out-dir ../../apps/engine-web/pkg && (command -v wasm-opt >/dev/null && wasm-opt -Oz --all-features pkg/rebook_engine_wasm_bg.wasm -o pkg/rebook_engine_wasm_bg.wasm || true)", "analyze:wasm": "ls -lh pkg/*.wasm && (command -v wasm-opt >/dev/null && wasm-opt -Oz --all-features pkg/rebook_engine_wasm_bg.wasm -o pkg/rebook_engine_wasm_bg.wasm || echo 'wasm-opt not installed; install Binaryen for further shrinking')", "dev": "vite", "build": "tsc -b && vite build", "preview": "vite preview" },
   "dependencies": { "@vitejs/plugin-react": "latest", "@vitejs/plugin-basic-ssl": "latest", "vite": "latest", "typescript": "latest", "react": "latest", "react-dom": "latest" },
   "devDependencies": { "@types/react": "latest", "@types/react-dom": "latest", "@webgpu/types": "latest" }
 }

@@ -7,6 +7,8 @@ use rebook_reader::{
 };
 
 use crate::frame::{FrameTransition, PageFrameKey, PreparedReaderFrame, SpreadFrameKey};
+use crate::input::{PointerEvent, PointerPhase};
+use crate::platform::{AppLifecycleEvent, MemoryPressure};
 use crate::transition::{PointerGestureController, PointerGestureResult, TransitionKind};
 
 pub struct EngineReader {
@@ -243,6 +245,43 @@ impl EngineReader {
     ) -> PointerGestureResult {
         self.cancel_interactive_navigation();
         self.pointer_gesture.pointer_down(id, x, y, timestamp_ms)
+    }
+
+    /// Handles normalized pointer input from any platform shell.
+    pub fn handle_pointer(
+        &mut self,
+        event: PointerEvent,
+    ) -> Result<PointerGestureResult, ReaderError> {
+        match event.phase {
+            PointerPhase::Down => {
+                Ok(self.pointer_down(event.id, event.x, event.y, event.timestamp_ms))
+            }
+            PointerPhase::Move => self.pointer_move(event.id, event.x, event.y, event.timestamp_ms),
+            PointerPhase::Up => self.pointer_up(event.id, event.x, event.y, event.timestamp_ms),
+            PointerPhase::Cancel => Ok(self.cancel_pointer_gesture(event.timestamp_ms)),
+        }
+    }
+
+    /// Cancels transient interaction when a mobile or desktop host loses its
+    /// foreground state or render surface.
+    pub fn handle_lifecycle(&mut self, event: AppLifecycleEvent, timestamp_ms: f64) {
+        if matches!(
+            event,
+            AppLifecycleEvent::Suspended | AppLifecycleEvent::SurfaceLost
+        ) {
+            self.cancel_pointer_gesture(timestamp_ms);
+            self.cancel_pending_navigation();
+            self.clear_text_selection();
+        }
+    }
+
+    pub fn handle_memory_pressure(&mut self, pressure: MemoryPressure) {
+        self.cancel_pending_navigation();
+        self.cancel_interactive_navigation();
+        self.session.set_segment_cache_capacity(match pressure {
+            MemoryPressure::Moderate => 3,
+            MemoryPressure::Critical => 1,
+        });
     }
 
     pub fn pointer_move(
@@ -611,7 +650,11 @@ impl EngineReader {
         self.session.toc_items()
     }
 
-    pub fn search(&self, query: &str, max_results: usize) -> Result<Vec<crate::SearchResult>, String> {
+    pub fn search(
+        &self,
+        query: &str,
+        max_results: usize,
+    ) -> Result<Vec<crate::SearchResult>, String> {
         crate::search_book(self.session.source(), query, max_results)
     }
 

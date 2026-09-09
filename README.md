@@ -108,6 +108,16 @@ After installation, import one or more books from the bookshelf and open a book 
 
 Torto uses Rust `1.97.1`. The workspace package remains named `rebook-desktop`, while the shipped application is `Torto` (`torto.exe` on Windows).
 
+Platform builds use separate artifact directories so building or cleaning one platform does not rebuild or remove another. Running `make` builds only the web/WASM target.
+
+```bash
+make                 # Web/WASM production build only
+make web-check       # Web/WASM compile and TypeScript check
+make android-check   # Android ARM64 engine only
+make native-check    # Desktop only
+make clean-web       # Remove only web artifacts
+```
+
 ```powershell
 cargo run --locked -p rebook-desktop
 cargo fmt --all --check
