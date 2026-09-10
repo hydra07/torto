@@ -43,6 +43,20 @@ On native targets, `ReaderSession` owns a bounded prefetch worker and generation
 
 The runtime object and its reader are intended to be driven by one platform owner/event loop. Platforms may serialize DTOs or schedule calls externally, but must not concurrently mutate one `EngineRuntime` from multiple owners.
 
+## Invalidation matrix
+
+| Change                                                                                     | Layout generation                                     | Semantic position                                        | Cache/interaction effect                                                                                      |
+| ------------------------------------------------------------------------------------------ | ----------------------------------------------------- | -------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| Physical surface size or device scale only                                                 | Unchanged                                             | Unchanged                                                | Platform surface/frame work only; logical pagination is not rebuilt.                                          |
+| Logical viewport size                                                                      | Rebuilt                                               | Preserved approximately/source-backed                    | Compiled segments are invalidated; pending navigation and transient selection/transition state are cancelled. |
+| Font set, font choice, typography, margins, paragraph spacing, typesetting, or spread mode | Rebuilt                                               | Restored by source/progression policy                    | Compiled segments and prepared navigation are invalidated; overlay ranges remain source-backed.               |
+| Publication/source refresh                                                                 | Rebuilt from the new source                           | Preserved only when the new source can resolve it safely | Repository, TOC indexes, caches, and pending work are replaced; stale generations cannot install results.     |
+| Highlights/focus/selection overlays                                                        | Unchanged                                             | Unchanged                                                | Overlay revision/frame changes only; no pagination or source reparse.                                         |
+| Pointer transition progress                                                                | Unchanged                                             | Unchanged until navigation commit                        | Frame/transition state changes only; cancellation leaves the committed spread intact.                         |
+| Lifecycle suspension or memory pressure                                                    | Unchanged unless a platform separately resizes/styles | Unchanged                                                | Transient navigation/selection work is cancelled and render/cache resources may be released.                  |
+
+This matrix is about semantic invalidation, not an API promise that every backend reuses every allocation. Implementations should preserve source-backed location even when a broad compiled-segment cache clear is necessary.
+
 ## Platform ownership
 
 The platform owns UI, popup behavior, local library management, settings persistence, permissions, content URI/file resolution, clipboard, external links, navigation history/Back policy, bookmark and annotation persistence, and OS lifecycle translation. It persists engine DTOs such as `ReaderStyle`, `LocatorV1`, and source-backed overlay ranges without reproducing pagination, locator recovery, hit testing, or reader behavior.

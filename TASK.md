@@ -248,13 +248,24 @@ These items describe code that existed when this roadmap was created. They are n
 
 ## Layout and invalidation
 
-- [ ] P2-006 Build an invalidation matrix for viewport, DPR, font set, typography, margins, spread mode, source refresh, overlays, and transitions.
-- [ ] P2-007 Verify physical-size/DPR-only changes do not trigger logical reflow.
-- [ ] P2-008 Verify logical viewport changes preserve semantic location.
-- [ ] P2-009 Verify style changes preserve semantic location.
-- [ ] P2-010 Verify single/double spread changes preserve semantic location.
+- [x] P2-006 Build an invalidation matrix for viewport, DPR, font set, typography, margins, spread mode, source refresh, overlays, and transitions.
+    - Evidence: `docs/ENGINE_RUNTIME_API.md` defines generation, semantic-position, cache, and interaction effects for each change class.
+- [x] P2-007 Verify physical-size/DPR-only changes do not trigger logical reflow.
+    - Evidence: `EngineRuntime::resize` and `physical_resize_does_not_reflow_logical_layout` keep logical viewport/layout unchanged while updating physical surface dimensions.
+    - Validation: `cargo test -p rebook-engine --locked` — 14 passed.
+- [x] P2-008 Verify logical viewport changes preserve semantic location.
+    - Evidence: `resize_rebuilds_layout_and_preserves_approximate_progress` and locator reflow tests cover logical viewport changes with source/progression restoration.
+    - Validation: `cargo test -p rebook-reader --locked` — 63 passed.
+- [x] P2-009 Verify style changes preserve semantic location.
+    - Evidence: font/style and locator matrix tests cover font size, margins, paragraph spacing, typesetting, and source-backed restoration.
+    - Validation: `cargo test -p rebook-reader --locked` — 63 passed.
+- [x] P2-010 Verify single/double spread changes preserve semantic location.
+    - Evidence: `durable_locator_survives_reader_style_matrix_changes` and double-spread reader tests cover spread transitions and source-backed restoration.
+    - Validation: `cargo test -p rebook-reader --locked` — 63 passed.
 - [ ] P2-011 Test odd/even spread boundaries and blank companion-page policy.
-- [ ] P2-012 Test section, segment, and fixed-layout page boundaries.
+- [x] P2-012 Test section, segment, and fixed-layout page boundaries.
+    - Evidence: reader tests cover cross-section spreads, segment/page boundaries, fixed-page placeholders, and continuous fixed pages.
+    - Validation: `cargo test -p rebook-reader --locked` — 63 passed.
 - [ ] P2-013 Make invalidation reasons observable in diagnostics where broad cache clears hide the cause.
 
 ## Navigation primitives
