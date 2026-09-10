@@ -1616,6 +1616,14 @@ mod tests {
     }
 
     #[test]
+    fn identical_epub_bytes_produce_a_stable_publication_id() {
+        let bytes = minimal_epub();
+        let first = EpubPublication::open_bytes(bytes.clone()).expect("valid EPUB");
+        let second = EpubPublication::open_bytes(bytes).expect("valid EPUB");
+
+        assert_eq!(first.book().id, second.book().id);
+    }
+    #[test]
     fn opens_epub3_navigation_and_lazy_resources() {
         let bytes = minimal_epub();
         let publication = EpubPublication::open_bytes(bytes).expect("valid EPUB");

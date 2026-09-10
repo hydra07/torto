@@ -131,15 +131,27 @@ These items describe code that existed when this roadmap was created. They are n
 
 ## Publication identity audit
 
-- [ ] P1-001 Document how `PublicationId` is generated for every enabled format.
-- [ ] P1-002 Test publication ID stability for repeated opens of identical bytes.
-- [ ] P1-003 Test collision and changed-content behavior for publication IDs.
-- [ ] P1-004 Audit `SpineItemId`, source node IDs, and `SourceAnchor` generation across format adapters.
-- [ ] P1-005 Audit source-anchor stability when parser normalization changes.
-- [ ] P1-006 Audit href normalization, percent encoding, fragments, and relative URL resolution.
-- [ ] P1-007 Audit internal links, missing targets, footnotes/endnotes, and cross-section anchors.
-- [ ] P1-008 Audit resource identity for images, fonts, SVG, math, PDF pages, and comic pages.
-- [ ] P1-009 Document fixed-layout versus reflowable capability representation.
+- [x] P1-001 Document how `PublicationId` is generated for every enabled format.
+    - Evidence: `docs/ARCHITECTURE.md` records SHA-256 byte identity for EPUB, MOBI/KF8/MOBI6, FB2, CBZ, CHM, and normal PDF opens, plus the deliberate PDF import-ID override.
+- [x] P1-002 Test publication ID stability for repeated opens of identical bytes.
+    - Evidence: `identical_epub_bytes_produce_a_stable_publication_id` opens the same immutable EPUB bytes twice and compares `Book.id`; all byte-backed format constructors derive IDs from the same source bytes.
+    - Validation: `cargo test -p rebook-formats --locked` — 42 passed, 1 ignored.
+- [~] P1-003 Test collision and changed-content behavior for publication IDs.
+    - Partial evidence: identity is a full source-byte SHA-256 digest rather than title, path, or metadata; the architecture audit documents changed-content behavior and the cryptographic collision assumption. A valid changed-content fixture and explicit collision-resistance test remain open.
+- [x] P1-004 Audit `SpineItemId`, source node IDs, and `SourceAnchor` generation across format adapters.
+    - Evidence: direct-source adapters use `section-{n}` IDs and the shared HTML parser; EPUB uses manifest IDs; PDF uses page-index text ranges; CBZ image pages have no text anchors. Findings are recorded in `docs/ARCHITECTURE.md`.
+- [x] P1-005 Audit source-anchor stability when parser normalization changes.
+    - Evidence: parser node IDs are stable only for equivalent parser output; normalization/parser changes may invalidate exact anchors and are covered by the locator quote/progression fallback policy in `docs/ARCHITECTURE.md`.
+- [x] P1-006 Audit href normalization, percent encoding, fragments, and relative URL resolution.
+    - Evidence: `PublicationUrl` canonicalization and boundary matrix cover decoding, relative paths, fragments, query stripping, encoded traversal, invalid escapes, and external schemes.
+    - Validation: `cargo test -p rebook-publication --locked` — 10 passed.
+- [x] P1-007 Audit internal links, missing targets, footnotes/endnotes, and cross-section anchors.
+    - Evidence: HTML and EPUB tests cover canonical internal hrefs, missing-target failure behavior, footnote/endnote roles, and authored fragment anchors; reader tests cover cross-section locator fallback.
+    - Validation: `cargo test -p rebook-html --locked` — 64 passed; `cargo test -p rebook-formats --locked` — 41 passed, 1 ignored; `cargo test -p rebook-reader --locked` — 63 passed.
+- [x] P1-008 Audit resource identity for images, fonts, SVG, math, PDF pages, and comic pages.
+    - Evidence: resources use canonical publication URLs; CBZ and PDF generated paths are deterministic, while image/font/SVG/math resources remain source hrefs resolved through the same URL boundary. Findings are recorded in `docs/ARCHITECTURE.md`.
+- [x] P1-009 Document fixed-layout versus reflowable capability representation.
+    - Evidence: `RenditionLayout`, fixed page dimensions, image pages, and `FixedPageTextLayer` are documented as distinct from reflowable blocks in `docs/ARCHITECTURE.md`.
 
 ## Reading IR audit
 

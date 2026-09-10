@@ -167,6 +167,15 @@ Quote recovery rejects ambiguous matches and uses the match's visible start posi
 - CHM: `chm::{open_path,open_bytes}` reads the CHM directory/resources and TOC and implements `BookSource` directly; its `parse_section` loads a content document and invokes `rebook_html::parse_section`.
 - PDF: `pdf::{open,open_with_id,open_shared}` uses Hayro, creates one pre-paginated spine item per page, extracts catalog outlines through `pdf/catalog.rs`, and implements `BookSource` directly. `PdfPublication::parse_section` provides a page image block plus `FixedPageTextLayer`; rasterization and page resources are lazy and protected by `PdfResourceCache`/LRU.
 
+### Publication identity and navigation audit
+
+- EPUB, MOBI/KF8/MOBI6, FB2, CBZ, and CHM derive the default `PublicationId` from the SHA-256 digest of the source bytes. PDF follows the same content-derived identity when opened normally; the import path may intentionally supply a previously established PDF identity through `open_with_id`.
+- Reopening identical bytes therefore produces the same publication identity, while changing bytes changes the digest unless a platform deliberately supplies an import identity. Collision resistance is delegated to SHA-256; the engine does not treat title, file name, or filesystem path as identity.
+- EPUB manifest hrefs, generated direct-source section hrefs, CBZ generated page resources, and PDF page resources all pass through `PublicationUrl`; query strings are excluded from resource lookup, fragments remain navigation-only, external schemes and root escapes are rejected.
+- HTML-derived source anchors use parser-assigned node IDs and Unicode scalar offsets. Direct-source formats use the same HTML parser after normalization, while PDF uses page-index/text-layer ranges and CBZ image pages have no text source range. Parser node IDs are stable only for equivalent parser output; normalization or parser changes can invalidate exact anchors and must use locator fallback rather than claiming immutable DOM identity.
+- Internal links and TOC targets resolve through the same canonical URL contract. Missing targets remain typed navigation/resource failures; footnote and endnote relationships are represented as semantic note/link roles where the source format exposes them.
+- `RenditionLayout::Reflowable` versus `PrePaginated`, fixed page dimensions, and fixed-page text layers are the current capability representation. The model does not pretend that a fixed image page has reflowable block semantics.
+
 `rebook-html` is itself a mixed parser subsystem. `ReadingIrParser` handles structural block recovery, figures, notes, quotes, lists/tables, anchors and inline collection; `InlineCollector` normalizes whitespace and merges runs; `StyleSheet` implements the supported CSS cascade; helper families classify note links, captions, quotes, separators and navigation suppression. `parse_section_with_hints_and_image_classifier` is the full entry point. The implementation is grouped under `src/parser`, `src/inline`, and `src/css`; tests live in `src/tests.rs` so parser changes do not inflate the production entry point.
 
 ## 7. Layout and Typography
