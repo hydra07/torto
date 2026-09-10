@@ -110,4 +110,4 @@ The runtime does not own library state, file pickers, permissions, databases, bo
 - A stable deep-hit DTO containing text/link/image/reference/block context.
 - Invalidation reason diagnostics rather than only generation changes.
 - Native/WASM parity fixtures for snapshots, cancellation, and selection.
-- Capability reporting for enabled formats and optional backend behavior.
+- Capability reporting for enabled formats and optional backend behavior remains adapter-specific; the WASM adapter exposes renderer, transition, scene-cache, and fallback status through `renderer_capabilities()`.

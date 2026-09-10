@@ -29,6 +29,7 @@ use web_sys::HtmlCanvasElement;
 struct WebReaderState {
     runtime: EngineRuntime,
     renderer: Option<BrowserRenderer>,
+    fallback_reason: Option<String>,
     scene_cache: SpreadSceneCache,
 }
 
@@ -52,6 +53,7 @@ impl WebReaderState {
                 ViewportMetrics::from_logical_size(1200, 760, 1.0),
             ),
             renderer: None,
+            fallback_reason: None,
             scene_cache: SpreadSceneCache::new(5),
         }
     }
@@ -63,18 +65,20 @@ impl WebReaderState {
     /// exclusive borrow guard alive across the Promise and reject subsequent
     /// `tick`, navigation, and render calls as recursive aliasing.
     pub async fn create(canvas: HtmlCanvasElement) -> Result<WebReaderState, JsValue> {
-        let renderer = match GpuSurfaceRenderer::new(canvas.clone()).await {
-            Ok(renderer) => BrowserRenderer::Gpu(renderer),
+        let (renderer, fallback_reason) = match GpuSurfaceRenderer::new(canvas.clone()).await {
+            Ok(renderer) => (BrowserRenderer::Gpu(renderer), None),
             Err(gpu_error) => {
-                BrowserRenderer::Cpu(CpuSurfaceRenderer::new(canvas).map_err(|cpu_error| {
+                let cpu_renderer = CpuSurfaceRenderer::new(canvas).map_err(|cpu_error| {
                     JsValue::from_str(&format!(
                         "GPU initialization failed ({gpu_error}); CPU fallback failed ({cpu_error})"
                     ))
-                })?)
+                })?;
+                (BrowserRenderer::Cpu(cpu_renderer), Some(gpu_error))
             }
         };
         let mut reader = Self::new();
         reader.renderer = Some(renderer);
+        reader.fallback_reason = fallback_reason;
         Ok(reader)
     }
 
@@ -85,6 +89,30 @@ impl WebReaderState {
             None => "none",
         }
         .to_owned()
+    }
+
+    /// Returns adapter capabilities and the reason for a renderer fallback, if any.
+    pub fn renderer_capabilities(&self) -> String {
+        let renderer = self.renderer_kind();
+        let capabilities = serde_json::json!({
+            "renderer": renderer,
+            "webgpu": self
+                .renderer
+                .as_ref()
+                .is_some_and(|renderer| matches!(renderer, BrowserRenderer::Gpu(_))),
+            "cpu_fallback": self
+                .renderer
+                .as_ref()
+                .is_some_and(|renderer| matches!(renderer, BrowserRenderer::Cpu(_))),
+            "slide_transition": true,
+            "curl_3d_transition": self
+                .renderer
+                .as_ref()
+                .is_some_and(|renderer| matches!(renderer, BrowserRenderer::Gpu(_))),
+            "static_scene_cache": true,
+            "fallback_reason": self.fallback_reason.as_deref(),
+        });
+        serde_json::to_string(&capabilities).unwrap_or_else(|_| "{}".to_owned())
     }
 
     /// Opens bytes through the same format dispatcher used by native clients.
@@ -761,6 +789,10 @@ impl WebReader {
 
     pub fn renderer_kind(&self) -> Result<String, JsValue> {
         self.with_inner(|inner| Ok(inner.renderer_kind()))
+    }
+
+    pub fn renderer_capabilities(&self) -> Result<String, JsValue> {
+        self.with_inner(|inner| Ok(inner.renderer_capabilities()))
     }
 
     pub fn open_bytes(

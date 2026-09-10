@@ -422,7 +422,9 @@ These items describe code that existed when this roadmap was created. They are n
 - [x] P4-011 Verify current and destination scenes are pinned during transitions.
     - Evidence: `PreparedNavigation` owns the destination spread through retained `Arc`-backed pages; `ReaderCompositor` holds current/destination `Arc<StaticSpreadLayers>` locals through composition, so LRU eviction cannot invalidate an in-flight scene. Resize/style/source lifecycle paths cancel interactive navigation before invalidation, and commit occurs only after settle.
     - Validation: `cargo test -p rebook-engine --locked` — 15 passed; `cargo test -p rebook-vello-backend --locked` — 8 passed.
-- [ ] P4-012 Add backend capability and fallback reporting.
+- [x] P4-012 Add backend capability and fallback reporting.
+    - Evidence: `WebReader::renderer_capabilities` exposes active renderer, WebGPU/CPU fallback state, supported slide/Curl paths, static scene caching, and the original GPU fallback reason as JSON; capability policy remains in the adapter rather than `rebook-engine`.
+    - Validation: `cargo check -p rebook-engine-wasm --target wasm32-unknown-unknown --locked` — passed.
 
 ## None and Slide
 
