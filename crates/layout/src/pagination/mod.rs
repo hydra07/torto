@@ -763,4 +763,6 @@ pub enum LayoutError {
     Publication(#[from] PublicationError),
     #[error("image decode failed: {0}")]
     Image(#[from] ImageError),
+    #[error("layout resource limit exceeded: {0}")]
+    ResourceLimit(String),
 }

@@ -4069,3 +4069,12 @@
             }
         }
     }
+
+    #[test]
+    fn rejects_images_over_the_decoded_pixel_budget() {
+        let href = PublicationUrl::parse("images/oversized.png").unwrap();
+
+        let error = validate_image_dimensions(6_000, 6_000, &href).unwrap_err();
+
+        assert!(matches!(error, LayoutError::ResourceLimit(message) if message.contains("pixel limit")));
+    }

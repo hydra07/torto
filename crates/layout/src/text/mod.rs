@@ -427,11 +427,21 @@ fn unified_heading_scale(h1_scale: f32, level: u8) -> f32 {
         }
 }
 
+const MAX_IMAGE_PIXELS: u64 = 32 * 1024 * 1024;
+const MAX_IMAGE_BYTES: u64 = MAX_IMAGE_PIXELS * 4;
+
 fn load_raster_image(
     source: &dyn BookSource,
     image: &ImageBlock,
 ) -> Result<RasterImage, LayoutError> {
     if let Some(raster) = source.raster_resource(&image.href)? {
+        validate_image_dimensions(raster.width, raster.height, &image.href)?;
+        if u64::try_from(raster.pixels.len()).unwrap_or(u64::MAX) > MAX_IMAGE_BYTES {
+            return Err(LayoutError::ResourceLimit(format!(
+                "decoded image exceeds the {MAX_IMAGE_BYTES} byte limit: {}",
+                image.href
+            )));
+        }
         return Ok(RasterImage {
             width: raster.width,
             height: raster.height,
@@ -439,12 +449,39 @@ fn load_raster_image(
         });
     }
     let resource = source.resource(&image.href)?;
+    if u64::try_from(resource.bytes.len()).unwrap_or(u64::MAX) > MAX_IMAGE_BYTES {
+        return Err(LayoutError::ResourceLimit(format!(
+            "image source exceeds the {MAX_IMAGE_BYTES} byte limit: {}",
+            image.href
+        )));
+    }
+    let reader = image::ImageReader::new(std::io::Cursor::new(&resource.bytes))
+        .with_guessed_format()
+        .map_err(image::ImageError::IoError)?;
+    let (width, height) = reader.into_dimensions()?;
+    validate_image_dimensions(width, height, &image.href)?;
     let decoded = image::load_from_memory(&resource.bytes)?.to_rgba8();
     Ok(RasterImage {
         width: decoded.width(),
         height: decoded.height(),
         pixels: decoded.into_raw().into(),
     })
+}
+
+fn validate_image_dimensions(
+    width: u32,
+    height: u32,
+    href: &PublicationUrl,
+) -> Result<(), LayoutError> {
+    let pixels = u64::from(width)
+        .checked_mul(u64::from(height))
+        .ok_or_else(|| LayoutError::ResourceLimit(format!("image dimensions overflow: {href}")))?;
+    if pixels > MAX_IMAGE_PIXELS {
+        return Err(LayoutError::ResourceLimit(format!(
+            "image exceeds the {MAX_IMAGE_PIXELS} pixel limit: {href}"
+        )));
+    }
+    Ok(())
 }
 
 fn dominant_paragraph_start_offset(fragments: &[&[Block]], content_width: f32) -> f32 {
