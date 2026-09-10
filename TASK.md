@@ -235,11 +235,16 @@ These items describe code that existed when this roadmap was created. They are n
 
 ## State ownership audit
 
-- [ ] P2-001 Inventory state owned by `ReaderSession`, `EngineReader`, and `EngineRuntime`.
-- [ ] P2-002 Remove or document duplicated current-position, locator, selection, navigation, and transition state.
-- [ ] P2-003 Define committed reading state separately from prepared navigation and visual transition state.
-- [ ] P2-004 Document thread-safety and worker ownership for native reader sessions.
-- [ ] P2-005 Document cooperative scheduling ownership for single-threaded WASM.
+- [x] P2-001 Inventory state owned by `ReaderSession`, `EngineReader`, and `EngineRuntime`.
+    - Evidence: `docs/ENGINE_RUNTIME_API.md` separates committed session state, reader transient interaction state, and runtime book/viewport/lifecycle state.
+- [x] P2-002 Remove or document duplicated current-position, locator, selection, navigation, and transition state.
+    - Evidence: committed position and locator recovery remain in `ReaderSession`; `EngineReader` pending/interactive/selection values are documented as transient facade state and are not durable position.
+- [x] P2-003 Define committed reading state separately from prepared navigation and visual transition state.
+    - Evidence: runtime docs state that prepare/poll/commit and interactive destinations do not change committed position until commit.
+- [x] P2-004 Document thread-safety and worker ownership for native reader sessions.
+    - Evidence: native prefetch ownership, generation-tagged stale-result rejection, single session installation, and one-owner runtime driving are documented in `docs/ENGINE_RUNTIME_API.md`.
+- [x] P2-005 Document cooperative scheduling ownership for single-threaded WASM.
+    - Evidence: runtime docs define `EngineRuntime::tick` as the cooperative advancement path and prohibit a second WASM reader state machine.
 
 ## Layout and invalidation
 
