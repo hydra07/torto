@@ -419,7 +419,9 @@ These items describe code that existed when this roadmap was created. They are n
 - [x] P4-010 Audit image and PDF raster identity across scenes and uploads.
     - Evidence: `PageDisplayList::image_data` retains each `ImageData` Blob used by scene composition; `frame_images` enumerates current and destination spread images before GPU upload; the adapter deduplicates uploads by the Blob's globally unique ID. PDF pages use unique page resource paths and page-indexed per-publication raster caches, while recompilation creates fresh Blob IDs.
     - Validation: `cargo test -p rebook-vello-backend --locked` — 8 passed; `cargo check -p rebook-engine-wasm --target wasm32-unknown-unknown --locked` — passed.
-- [ ] P4-011 Verify current and destination scenes are pinned during transitions.
+- [x] P4-011 Verify current and destination scenes are pinned during transitions.
+    - Evidence: `PreparedNavigation` owns the destination spread through retained `Arc`-backed pages; `ReaderCompositor` holds current/destination `Arc<StaticSpreadLayers>` locals through composition, so LRU eviction cannot invalidate an in-flight scene. Resize/style/source lifecycle paths cancel interactive navigation before invalidation, and commit occurs only after settle.
+    - Validation: `cargo test -p rebook-engine --locked` — 15 passed; `cargo test -p rebook-vello-backend --locked` — 8 passed.
 - [ ] P4-012 Add backend capability and fallback reporting.
 
 ## None and Slide
