@@ -204,7 +204,7 @@ These items describe code that existed when this roadmap was created. They are n
     - Evidence: EPUB and CHM already enforce archive/entry/expanded-size budgets and path validation; CBZ now enforces archive bytes, entry count, per-entry bytes, total expanded bytes, and compression-ratio limits. CBZ materializes generated resource paths rather than extracting archive names.
     - Validation: `cargo test -p rebook-formats --locked` — 43 passed, 1 ignored.
 - [~] P1-027 Audit XML/HTML recursion, entity, and allocation limits.
-    - Partial evidence: EPUB XML sanitization enforces 128-level depth and rejects unsafe internal subsets; `rebook-html` now rejects sections over 64 MiB, over 1,000,000 DOM nodes, or over 256 ancestor levels. Direct HTML accepts predefined/numeric XML references and rejects undeclared entities; format-wide allocation coverage remains open.
+    - Partial evidence: EPUB XML sanitization enforces 128-level depth and rejects unsafe internal subsets; `rebook-html` now rejects sections over 64 MiB, over 1,000,000 DOM nodes, or over 256 ancestor levels. Direct HTML accepts predefined/numeric XML references and rejects undeclared entities. EPUB/FB2/CBZ/CHM bounded read paths are covered, but MOBI/KF8 record/table-derived allocations still lack a unified format-wide budget.
     - Validation: `cargo test -p rebook-html --locked` — 64 passed.
 - [x] P1-028 Audit image dimension and decoded-byte limits before allocation.
     - Evidence: `rebook-layout` now validates image dimensions before decode and bounds both decoded raster bytes and source bytes at 32M pixels/128MiB; source-provided rasters receive the same guard.
@@ -213,7 +213,7 @@ These items describe code that existed when this roadmap was created. They are n
     - Partial evidence: PDF now rejects non-finite/non-positive page dimensions before scale arithmetic and clamps raster output; direct adversarial coverage exercises zero, negative, NaN, and infinite dimensions. CBZ bounds archive/resource bytes, and layout rejects oversized decoded dimensions; a dedicated CBZ metadata fixture remains open.
     - Validation: `cargo test -p rebook-formats --locked` — 43 passed, 1 ignored.
 - [~] P1-030 Add malformed/adversarial fixtures that are safe to commit.
-    - Partial evidence: HTML size/depth/entity rejection tests and a bounded CBZ compression-ratio fixture are committed; broader malformed EPUB/PDF/image fixture coverage remains open.
+    - Partial evidence: HTML size/depth/entity rejection tests, a bounded CBZ compression-ratio fixture, changed-CBZ identity coverage, and PDF invalid-dimension coverage are committed; broader malformed EPUB/PDF/image fixtures and MOBI/KF8 allocation fixtures remain open.
     - Validation: `cargo test -p rebook-html --locked` — 64 passed; `cargo test -p rebook-formats --locked` — 43 passed, 1 ignored.
 - [~] P1-031 Add fuzz/property targets for the highest-risk parser and URL/anchor boundaries.
     - Partial evidence: `publication_url_boundary_matrix_preserves_canonical_invariants` exercises relative paths, fragments, encoded traversal, invalid escapes, NULs, backslashes, and external schemes without adding a fuzzing dependency; parser fuzz targets and broader anchor generation remain open.
