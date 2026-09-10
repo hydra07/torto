@@ -85,10 +85,12 @@ These items describe code that existed when this roadmap was created. They are n
     - Evidence: `cargo metadata --no-deps --format-version 1`; package manifests; `cargo tree -p rebook-engine`, `cargo tree -p rebook-engine-wasm`, and `cargo tree -p rebook-android-host`.
 - [x] P0-006 Verify `rebook-engine` has no UI, GPU, platform, network, database, sync, keyring, updater, or provider dependencies.
     - Evidence: `crates/engine/Cargo.toml` and inspected normal dependency tree contain only formats, layout, publication, reader, renderer, regex, serde, serde_json, thiserror, and web-time.
-- [ ] P0-007 Audit target-specific format feature closure for native default, EPUB-only WASM, and Android builds.
+- [~] P0-007 Audit target-specific format feature closure for native default, EPUB-only WASM, and Android builds.
+    - Finding: native `rebook-engine` defaults to `formats-full`; WASM requests `web-epub` and its target check passes, but the dependency tree and release-size closure still need a dedicated audit.
 - [x] P0-008 Audit direct low-level crate dependencies in `apps/engine-demo` and classify each as required backend/tooling access or facade gap.
     - Evidence: `apps/engine-demo/Cargo.toml`; direct layout/publication/reader/renderer imports are demo inspection/render-lab access, while Vello/wgpu/winit belong to the demo surface/backend and not core.
-- [ ] P0-009 Audit direct low-level crate dependencies in `crates/engine-wasm` and classify each as required backend/ABI access or facade gap.
+- [~] P0-009 Audit direct low-level crate dependencies in `crates/engine-wasm` and classify each as required backend/ABI access or facade gap.
+    - Finding: `rebook-vello-backend` and `rebook-renderer::PageDisplayList` are backend painting dependencies; `rebook-layout::ReaderFontBlob` is used to construct engine fonts. The remaining direct dependencies need a follow-up API-closure decision in P3.
 
 ## Public API ownership
 
