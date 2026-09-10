@@ -437,7 +437,10 @@ These items describe code that existed when this roadmap was created. They are n
     - Next: define transition selection and a stable Slide producer before end-to-end verification; keep Curl outside the Engine v1 critical path.
 - [ ] P4-015 Verify Slide commit happens only after successful settle.
 - [ ] P4-016 Verify Slide cancel returns to the exact source locator.
-- [ ] P4-017 Verify surface/device errors do not silently commit navigation.
+- [!] P4-017 Verify surface/device errors do not silently commit navigation.
+    - Blocked: `EngineReader::animation_step` commits after settle, while the WASM GPU adapter handles lost/outdated/timeout/occluded surfaces without returning a render acknowledgement to the engine before that commit.
+    - Affected: `crates/engine/src/reader.rs`, `crates/engine/src/runtime.rs`, `crates/engine-wasm/src/surface.rs`.
+    - Next: define an adapter render-acknowledgement or commit policy that preserves the committed locator when presentation fails; do not let a surface error mutate engine state implicitly.
 - [~] P4-018 Verify double-page spreads animate as one reading surface.
     - Evidence: interactive destination keys now derive their secondary page from the prepared destination spread; existing reader spread tests cover double-page composition and prefetch behavior.
     - Validation: `cargo test -p rebook-engine --locked` — 15 passed.
