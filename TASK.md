@@ -413,7 +413,9 @@ These items describe code that existed when this roadmap was created. They are n
     - Evidence: renderer uses backend-neutral `PaintScene`/retained display-list types; architecture dependency audit records no Vello/wgpu dependency.
 - [x] P4-008 Separate static page content from dynamic overlays and transitions.
     - Evidence: prepared frame overlays/revisions and backend scene-layer APIs separate retained page content, source overlays, and transition transforms.
-- [ ] P4-009 Audit scene cache invalidation for resize, style, spread, source, overlay, and transition changes.
+- [x] P4-009 Audit scene cache invalidation for resize, style, spread, source, overlay, and transition changes.
+    - Evidence: `SpreadSceneCache` keys static layers by `SpreadFrameKey`; logical resize/style and spread changes advance layout generations, source refresh now carries a monotonic generation across prefetch-worker replacement, overlays are composed outside static layers, and transition destinations use separate keys.
+    - Validation: `cargo test -p rebook-reader --locked` — source-refresh frame-key regression passed; `cargo test -p rebook-engine --locked` — 15 passed.
 - [ ] P4-010 Audit image and PDF raster identity across scenes and uploads.
 - [ ] P4-011 Verify current and destination scenes are pinned during transitions.
 - [ ] P4-012 Add backend capability and fallback reporting.

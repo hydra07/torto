@@ -490,10 +490,11 @@ impl PrefetchWorker {
         source: Arc<dyn BookSource>,
         repository: Arc<SectionRepository>,
         fonts: Arc<[ReaderFontBlob]>,
+        initial_generation: u64,
     ) -> Result<Self, ReaderError> {
         let (request_sender, request_receiver) = mpsc::channel::<PrefetchRequest>();
         let (result_sender, result_receiver) = mpsc::channel::<PrefetchResult>();
-        let active_generation = Arc::new(AtomicU64::new(0));
+        let active_generation = Arc::new(AtomicU64::new(initial_generation));
         let active_request = Arc::new(Mutex::new(None));
         let cancelled = Arc::new(AtomicBool::new(false));
         let worker_generation = Arc::clone(&active_generation);
@@ -640,6 +641,7 @@ impl PrefetchWorker {
         source: Arc<dyn BookSource>,
         repository: Arc<SectionRepository>,
         fonts: Arc<[ReaderFontBlob]>,
+        initial_generation: u64,
     ) -> Result<Self, ReaderError> {
         let layout_engine = LayoutEngine::with_fonts(fonts.iter().cloned());
         Ok(Self {
@@ -650,7 +652,7 @@ impl PrefetchWorker {
                 pending: VecDeque::new(),
                 completed: VecDeque::new(),
             }),
-            active_generation: Arc::new(AtomicU64::new(0)),
+            active_generation: Arc::new(AtomicU64::new(initial_generation)),
         })
     }
 

@@ -70,7 +70,7 @@ backend requests another frame while requires_next_frame is true
 
 ## Prepared frame invariants
 
-- `PageFrameKey` identifies a reader position within a layout generation; `SpreadFrameKey` adds the logical frame dimensions and optional secondary page.
+- `PageFrameKey` identifies a reader position within a monotonic layout generation; `SpreadFrameKey` adds the logical frame dimensions and optional secondary page. Source refreshes must advance the generation even when a new worker or source snapshot is installed.
 - `content_revision` changes when content/layout state requires page content rebuilding; `overlay_revision` changes when source-backed overlay presentation changes without repagination.
 - `transition_kind` and `FrameTransition` describe visual state only. They cannot change the committed `ReaderSession` position; commit remains a reader navigation operation.
 - Current and destination spreads are owned by the prepared frame through the reader spread DTOs and remain available for the lifetime of that frame. A backend must not retain references after discarding the frame unless it retains an explicit owned clone/`Arc`-backed page structure.

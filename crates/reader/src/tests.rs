@@ -2145,8 +2145,14 @@
         }
         let old_fraction = page_fraction(reader.location().page_index, old_count);
 
+        let old_generation = reader.layout_generation();
         reader.refresh_source().unwrap();
 
+        assert_ne!(
+            reader.layout_generation(),
+            old_generation,
+            "source refresh must invalidate backend frame keys"
+        );
         let location = reader.location();
         let new_fraction = page_fraction(location.page_index, location.page_count);
         let one_page = page_fraction(1, location.page_count);

@@ -103,6 +103,7 @@ impl ReaderSession {
             Arc::clone(&source),
             Arc::clone(&repository),
             Arc::clone(&fonts),
+            0,
         )?;
         let current_section =
             first_visible_section(source.book().sections.len(), &hidden_sections).unwrap_or(0);
@@ -1698,10 +1699,12 @@ impl ReaderSession {
             &mut self.layout_engine,
             &self.display_compiler,
         )?;
+        let next_generation = self.prefetch_worker.generation().wrapping_add(1);
         let prefetch_worker = PrefetchWorker::spawn(
             Arc::clone(&self.source),
             Arc::clone(&repository),
             Arc::clone(&self.fonts),
+            next_generation,
         )?;
         let target_page = target
             .and_then(PublicationUrl::fragment)

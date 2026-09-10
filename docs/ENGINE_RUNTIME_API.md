@@ -39,7 +39,7 @@ The runtime has three deliberately different ownership layers:
 
 A committed position is changed only by `ReaderSession` navigation or locator operations. Prepared navigation and interactive transition state may describe a destination without changing that position; cancellation drops those transient values. Resize/style changes invalidate layout generations and preserve meaning through source locators/progression rather than page numbers.
 
-On native targets, `ReaderSession` owns a bounded prefetch worker and generation-tagged requests/results. The worker may parse/layout/compile adjacent segments, but stale generations are discarded and the session remains the only owner that installs results. On single-threaded WASM, the same policy is advanced cooperatively through `EngineRuntime::tick`; no second reader state machine or background thread is introduced.
+On native targets, `ReaderSession` owns a bounded prefetch worker and generation-tagged requests/results. The worker may parse/layout/compile adjacent segments, but stale generations are discarded and the session remains the only owner that installs results. Replacing the worker during a source refresh carries forward a new monotonic layout generation so backend frame keys cannot collide with cached scenes from the previous source. On single-threaded WASM, the same policy is advanced cooperatively through `EngineRuntime::tick`; no second reader state machine or background thread is introduced.
 
 The runtime object and its reader are intended to be driven by one platform owner/event loop. Platforms may serialize DTOs or schedule calls externally, but must not concurrently mutate one `EngineRuntime` from multiple owners.
 
