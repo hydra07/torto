@@ -294,6 +294,16 @@ mod tests {
         assert_eq!(frame.transition_kind, transition::TransitionKind::Curl);
         assert!(!frame.is_transitioning());
         assert!(!frame.requires_next_frame);
+        assert_eq!(
+            reader.animation_step(0.0).unwrap(),
+            EngineAnimationState::Idle
+        );
+
+        let repeated = reader.frame().unwrap();
+        assert_eq!(repeated.key, frame.key);
+        assert_eq!(repeated.content_revision, frame.content_revision);
+        assert_eq!(repeated.overlay_revision, frame.overlay_revision);
+        assert_eq!(reader.current_position(), frame.key.primary.position);
     }
 
     #[test]

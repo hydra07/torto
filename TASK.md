@@ -428,7 +428,9 @@ These items describe code that existed when this roadmap was created. They are n
 
 ## None and Slide
 
-- [ ] P4-013 Verify None renders and commits deterministically without animation.
+- [x] P4-013 Verify None renders and commits deterministically without animation.
+    - Evidence: `test_prepared_reader_frame` confirms repeated `None` frames retain the same key/revisions, report no next frame, leave animation idle, and preserve committed position.
+    - Validation: `cargo test -p rebook-engine --locked` — 15 passed.
 - [ ] P4-014 Verify Slide uses prepared source/destination scenes.
 - [ ] P4-015 Verify Slide commit happens only after successful settle.
 - [ ] P4-016 Verify Slide cancel returns to the exact source locator.
