@@ -1033,8 +1033,8 @@
     #[test]
     fn locator_quote_recovers_after_source_node_changes() {
         let original_text = format!(
-            "唯一 locator recovery phrase。{}",
-            "多字节文本 ".repeat(500)
+            "Unique locator recovery phrase – naïve café. {}",
+            "multibyte résumé text ".repeat(500)
         );
         let original = CountingSource::new(std::slice::from_ref(&original_text));
         let first =
@@ -1042,7 +1042,7 @@
         let locator = first.current_locator();
         assert!(locator.text.is_some());
 
-        let replacement_text = format!("{}{}", "前缀文本 ".repeat(300), original_text);
+        let replacement_text = format!("{}{}", "prefix résumé text ".repeat(300), original_text);
         let mut replacement = CountingSource::new(&[replacement_text]);
         let replacement_mut = Arc::get_mut(&mut replacement).unwrap();
         let Block::Text(text) = &mut replacement_mut.sections[0].blocks[0] else {

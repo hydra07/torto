@@ -10,7 +10,11 @@ use crate::source::{DirectBookSource, SectionContent, SourceBook, SourceResource
 use crate::xml::decode_xml;
 use crate::{BookFormat, FormatError, conversion_error};
 
+const MAX_ARCHIVE_BYTES: u64 = 512 * 1024 * 1024;
+const MAX_ENTRIES: usize = 10_000;
 const MAX_ENTRY_BYTES: u64 = 64 * 1024 * 1024;
+const MAX_TOTAL_BYTES: u64 = 1024 * 1024 * 1024;
+const MAX_COMPRESSION_RATIO: u64 = 200;
 
 struct ImageEntry {
     index: usize,
@@ -27,13 +31,55 @@ struct ComicMetadata {
 }
 
 pub(crate) fn open(bytes: &[u8], file_name: &str) -> Result<DirectBookSource, FormatError> {
+    if u64::try_from(bytes.len()).unwrap_or(u64::MAX) > MAX_ARCHIVE_BYTES {
+        return Err(conversion_error(
+            BookFormat::Cbz,
+            "archive exceeds the 512 MiB limit",
+        ));
+    }
     let mut archive = ZipArchive::new(Cursor::new(bytes))?;
+    if archive.len() > MAX_ENTRIES {
+        return Err(conversion_error(
+            BookFormat::Cbz,
+            format_args!("archive exceeds the {MAX_ENTRIES} entry limit"),
+        ));
+    }
+    let mut total_bytes = 0_u64;
     let mut images = Vec::new();
     let mut comic_info_index = None;
     for index in 0..archive.len() {
         let entry = archive.by_index(index)?;
         if entry.is_dir() {
             continue;
+        }
+        if entry.size() > MAX_ENTRY_BYTES {
+            return Err(conversion_error(
+                BookFormat::Cbz,
+                format_args!("entry {} exceeds the 64 MiB limit", entry.name()),
+            ));
+        }
+        total_bytes = total_bytes
+            .checked_add(entry.size())
+            .ok_or_else(|| conversion_error(BookFormat::Cbz, "expanded size overflow"))?;
+        if total_bytes > MAX_TOTAL_BYTES {
+            return Err(conversion_error(
+                BookFormat::Cbz,
+                "archive exceeds the 1 GiB expanded-size limit",
+            ));
+        }
+        if entry.compressed_size() > 0
+            && entry.size()
+                > entry
+                    .compressed_size()
+                    .saturating_mul(MAX_COMPRESSION_RATIO)
+        {
+            return Err(conversion_error(
+                BookFormat::Cbz,
+                format_args!(
+                    "entry {} exceeds the {MAX_COMPRESSION_RATIO}:1 compression ratio limit",
+                    entry.name()
+                ),
+            ));
         }
         let name = entry.name().to_owned();
         if name.eq_ignore_ascii_case("ComicInfo.xml") {
