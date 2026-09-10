@@ -139,9 +139,9 @@ These items describe code that existed when this roadmap was created. They are n
     - Evidence: `docs/ARCHITECTURE.md` records SHA-256 byte identity for EPUB, MOBI/KF8/MOBI6, FB2, CBZ, CHM, and normal PDF opens, plus the deliberate PDF import-ID override.
 - [x] P1-002 Test publication ID stability for repeated opens of identical bytes.
     - Evidence: `identical_epub_bytes_produce_a_stable_publication_id` opens the same immutable EPUB bytes twice and compares `Book.id`; all byte-backed format constructors derive IDs from the same source bytes.
-    - Validation: `cargo test -p rebook-formats --locked` — 42 passed, 1 ignored.
-- [~] P1-003 Test collision and changed-content behavior for publication IDs.
-    - Partial evidence: identity is a full source-byte SHA-256 digest rather than title, path, or metadata; the architecture audit documents changed-content behavior and the cryptographic collision assumption. A valid changed-content fixture and explicit collision-resistance test remain open.
+    - Validation: `cargo test -p rebook-formats --locked` — 43 passed, 1 ignored.
+- [x] P1-003 Test collision and changed-content behavior for publication IDs.
+    - Evidence: `changed_cbz_bytes_produce_different_publication_ids` proves changed source bytes produce different IDs; collision resistance is the documented SHA-256 cryptographic assumption rather than a meaningful runtime fixture.
 - [x] P1-004 Audit `SpineItemId`, source node IDs, and `SourceAnchor` generation across format adapters.
     - Evidence: direct-source adapters use `section-{n}` IDs and the shared HTML parser; EPUB uses manifest IDs; PDF uses page-index text ranges; CBZ image pages have no text anchors. Findings are recorded in `docs/ARCHITECTURE.md`.
 - [x] P1-005 Audit source-anchor stability when parser normalization changes.
@@ -151,7 +151,7 @@ These items describe code that existed when this roadmap was created. They are n
     - Validation: `cargo test -p rebook-publication --locked` — 10 passed.
 - [x] P1-007 Audit internal links, missing targets, footnotes/endnotes, and cross-section anchors.
     - Evidence: HTML and EPUB tests cover canonical internal hrefs, missing-target failure behavior, footnote/endnote roles, and authored fragment anchors; reader tests cover cross-section locator fallback.
-    - Validation: `cargo test -p rebook-html --locked` — 64 passed; `cargo test -p rebook-formats --locked` — 42 passed, 1 ignored; `cargo test -p rebook-reader --locked` — 63 passed.
+    - Validation: `cargo test -p rebook-html --locked` — 64 passed; `cargo test -p rebook-formats --locked` — 43 passed, 1 ignored; `cargo test -p rebook-reader --locked` — 63 passed.
 - [x] P1-008 Audit resource identity for images, fonts, SVG, math, PDF pages, and comic pages.
     - Evidence: resources use canonical publication URLs; CBZ and PDF generated paths are deterministic, while image/font/SVG/math resources remain source hrefs resolved through the same URL boundary. Findings are recorded in `docs/ARCHITECTURE.md`.
 - [x] P1-009 Document fixed-layout versus reflowable capability representation.
@@ -202,7 +202,7 @@ These items describe code that existed when this roadmap was created. They are n
 
 - [x] P1-026 Audit archive entry count, decompression ratio, total expanded size, and path traversal limits.
     - Evidence: EPUB and CHM already enforce archive/entry/expanded-size budgets and path validation; CBZ now enforces archive bytes, entry count, per-entry bytes, total expanded bytes, and compression-ratio limits. CBZ materializes generated resource paths rather than extracting archive names.
-    - Validation: `cargo test -p rebook-formats --locked` — 42 passed, 1 ignored.
+    - Validation: `cargo test -p rebook-formats --locked` — 43 passed, 1 ignored.
 - [~] P1-027 Audit XML/HTML recursion, entity, and allocation limits.
     - Partial evidence: EPUB XML sanitization enforces 128-level depth and rejects unsafe internal subsets; `rebook-html` now rejects sections over 64 MiB, over 1,000,000 DOM nodes, or over 256 ancestor levels. Direct HTML accepts predefined/numeric XML references and rejects undeclared entities; format-wide allocation coverage remains open.
     - Validation: `cargo test -p rebook-html --locked` — 64 passed.
@@ -211,10 +211,10 @@ These items describe code that existed when this roadmap was created. They are n
     - Validation: `cargo test -p rebook-layout --locked` — 102 passed.
 - [~] P1-029 Audit PDF and comic page dimension arithmetic for overflow.
     - Partial evidence: PDF now rejects non-finite/non-positive page dimensions before scale arithmetic and clamps raster output; direct adversarial coverage exercises zero, negative, NaN, and infinite dimensions. CBZ bounds archive/resource bytes, and layout rejects oversized decoded dimensions; a dedicated CBZ metadata fixture remains open.
-    - Validation: `cargo test -p rebook-formats --locked` — 42 passed, 1 ignored.
+    - Validation: `cargo test -p rebook-formats --locked` — 43 passed, 1 ignored.
 - [~] P1-030 Add malformed/adversarial fixtures that are safe to commit.
     - Partial evidence: HTML size/depth/entity rejection tests and a bounded CBZ compression-ratio fixture are committed; broader malformed EPUB/PDF/image fixture coverage remains open.
-    - Validation: `cargo test -p rebook-html --locked` — 64 passed; `cargo test -p rebook-formats --locked` — 42 passed, 1 ignored.
+    - Validation: `cargo test -p rebook-html --locked` — 64 passed; `cargo test -p rebook-formats --locked` — 43 passed, 1 ignored.
 - [~] P1-031 Add fuzz/property targets for the highest-risk parser and URL/anchor boundaries.
     - Partial evidence: `publication_url_boundary_matrix_preserves_canonical_invariants` exercises relative paths, fragments, encoded traversal, invalid escapes, NULs, backslashes, and external schemes without adding a fuzzing dependency; parser fuzz targets and broader anchor generation remain open.
     - Validation: `cargo test -p rebook-publication --locked` — 10 passed.

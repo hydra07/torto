@@ -233,6 +233,21 @@ mod tests {
     use super::*;
 
     #[test]
+    fn changed_cbz_bytes_produce_different_publication_ids() {
+        let make_archive = |page: &[u8]| {
+            let mut archive = ZipWriter::new(Cursor::new(Vec::new()));
+            let options =
+                SimpleFileOptions::default().compression_method(CompressionMethod::Stored);
+            archive.start_file("page.png", options).unwrap();
+            archive.write_all(page).unwrap();
+            archive.finish().unwrap().into_inner()
+        };
+        let first = open(&make_archive(b"first"), "changed.cbz").unwrap();
+        let second = open(&make_archive(b"second"), "changed.cbz").unwrap();
+
+        assert_ne!(first.book().id, second.book().id);
+    }
+    #[test]
     fn converts_comic_info_and_sorted_pages() {
         let mut archive = ZipWriter::new(Cursor::new(Vec::new()));
         let options = SimpleFileOptions::default().compression_method(CompressionMethod::Deflated);
