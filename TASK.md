@@ -181,8 +181,10 @@ These items describe code that existed when this roadmap was created. They are n
 - [~] P1-027 Audit XML/HTML recursion, entity, and allocation limits.
     - Partial evidence: EPUB XML sanitization enforces 128-level depth and rejects unsafe internal subsets; `rebook-html` now rejects sections over 64 MiB, over 1,000,000 DOM nodes, or over 256 ancestor levels. Direct HTML entity policy and format-wide allocation coverage remain open.
     - Validation: `cargo test -p rebook-html --locked` — 61 passed.
-- [ ] P1-028 Audit image dimension and decoded-byte limits before allocation.
-- [ ] P1-029 Audit PDF and comic page dimension arithmetic for overflow.
+- [~] P1-028 Audit image dimension and decoded-byte limits before allocation.
+    - Partial evidence: EPUB/CBZ compressed-resource budgets bound source bytes, and PDF rendering caps the largest page dimension at 2,048 pixels; generic image decoding still lacks one shared pixel-count/decoded-byte guard before allocation.
+- [~] P1-029 Audit PDF and comic page dimension arithmetic for overflow.
+    - Partial evidence: PDF page raster sizing clamps dimensions and render scale before pixmap creation; CBZ currently bounds archive/resource bytes but does not validate image dimensions before downstream decode. A shared decoded-pixel budget and adversarial dimension fixtures remain open.
 - [ ] P1-030 Add malformed/adversarial fixtures that are safe to commit.
 - [ ] P1-031 Add fuzz/property targets for the highest-risk parser and URL/anchor boundaries.
 - [x] P1-032 Reject stale source anchors instead of silently restoring to section/page zero.
