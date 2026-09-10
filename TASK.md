@@ -438,7 +438,10 @@ These items describe code that existed when this roadmap was created. They are n
 - [ ] P4-015 Verify Slide commit happens only after successful settle.
 - [ ] P4-016 Verify Slide cancel returns to the exact source locator.
 - [ ] P4-017 Verify surface/device errors do not silently commit navigation.
-- [ ] P4-018 Verify double-page spreads animate as one reading surface.
+- [~] P4-018 Verify double-page spreads animate as one reading surface.
+    - Evidence: interactive destination keys now derive their secondary page from the prepared destination spread; existing reader spread tests cover double-page composition and prefetch behavior.
+    - Validation: `cargo test -p rebook-engine --locked` — 15 passed.
+    - Next: add an end-to-end interactive double-spread fixture after stable Slide/Curl transition selection is defined.
 
 ## Curl experiment
 

@@ -569,23 +569,36 @@ impl EngineReader {
             height: viewport.height,
         };
 
-        let (destination_spread, destination_key, transition, requires_next_frame) = self
-            .interactive_navigation
-            .as_ref()
-            .map_or((None, None, FrameTransition::None, false), |navigation| {
+        let (destination_spread, destination_key, transition, requires_next_frame) =
+            if let Some(navigation) = self.interactive_navigation.as_ref() {
                 let spread = navigation
                     .prepared
                     .as_ref()
                     .map(|prepared| prepared.destination_spread().clone());
-                let destination_key = navigation.prepared.as_ref().map(|prepared| SpreadFrameKey {
-                    primary: PageFrameKey {
-                        position: prepared.destination(),
-                        layout_generation,
-                    },
-                    secondary: None,
-                    width: viewport.width,
-                    height: viewport.height,
-                });
+                let destination_key = if let Some(prepared) = navigation.prepared.as_ref() {
+                    let destination = prepared.destination();
+                    let secondary = if prepared.destination_spread().secondary.is_some() {
+                        self.session
+                            .next_position(destination)?
+                            .map(|position| PageFrameKey {
+                                position,
+                                layout_generation,
+                            })
+                    } else {
+                        None
+                    };
+                    Some(SpreadFrameKey {
+                        primary: PageFrameKey {
+                            position: destination,
+                            layout_generation,
+                        },
+                        secondary,
+                        width: viewport.width,
+                        height: viewport.height,
+                    })
+                } else {
+                    None
+                };
                 (
                     spread,
                     destination_key,
@@ -599,7 +612,9 @@ impl EngineReader {
                     },
                     true,
                 )
-            });
+            } else {
+                (None, None, FrameTransition::None, false)
+            };
 
         Ok(PreparedReaderFrame {
             key,
