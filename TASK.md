@@ -172,8 +172,9 @@ These items describe code that existed when this roadmap was created. They are n
     - Evidence: `locator_falls_back_to_total_progression_when_href_moves` verifies a changed href uses total progression; `locator_rejects_unknown_href_without_a_fallback` verifies typed failure.
 - [x] P1-024 Add tests ensuring ambiguous text quotes do not silently choose unrelated content.
     - Evidence: `ambiguous_locator_quote_falls_back_without_picking_a_match` verifies repeated quote matches are rejected before href/progression fallback.
-- [~] P1-025 Add tests for locator round-trip across viewport, font, margin, spacing, and spread changes.
-    - Partial evidence: existing `durable_locator_restores_after_viewport_repagination` now asserts bounded quote production and source restoration across viewport changes. Font/margin/spacing/spread matrix remains open.
+- [x] P1-025 Add tests for locator round-trip across viewport, font, margin, spacing, and spread changes.
+    - Evidence: `durable_locator_survives_reader_style_matrix_changes` restores one source locator across viewport, font-size, margin, paragraph-spacing, and double-spread variants.
+    - Validation: `cargo test -p rebook-reader --locked` — 63 passed.
 
 ## Untrusted content and limits
 

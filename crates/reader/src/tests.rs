@@ -1157,6 +1157,46 @@
     }
 
     #[test]
+    fn durable_locator_survives_reader_style_matrix_changes() {
+        let source = CountingSource::new(&["style matrix reading content ".repeat(2_000)]);
+        let mut initial =
+            ReaderSession::open(source.clone(), viewport(600, 400), ReaderStyle::default())
+                .unwrap();
+        initial
+            .go_to_source(&SourceAnchor {
+                spine: SpineItemId::new("section-0").unwrap(),
+                node: "paragraph-0".into(),
+                text_offset: 8_000,
+            })
+            .unwrap();
+        let locator = initial.current_locator();
+        let anchor = locator.source.as_ref().unwrap().start.clone();
+
+        let mut font_style = ReaderStyle::default();
+        font_style.typography.font_size *= 1.2;
+        let mut margin_style = ReaderStyle::default();
+        margin_style.horizontal_margin = 48.0;
+        margin_style.top_margin = 36.0;
+        margin_style.bottom_margin = 28.0;
+        let mut spacing_style = ReaderStyle::default();
+        spacing_style.minimum_paragraph_gap = 24.0;
+        let mut spread_style = ReaderStyle::default();
+        spread_style.spread = SpreadMode::Double;
+        let variants = [
+            (viewport(820, 620), font_style),
+            (viewport(600, 400), margin_style),
+            (viewport(600, 400), spacing_style),
+            (viewport(900, 500), spread_style),
+        ];
+
+        for (viewport, style) in variants {
+            let mut reader = ReaderSession::open(source.clone(), viewport, style).unwrap();
+            reader.restore_locator(&locator).unwrap();
+            assert!(reader.current_page().contains_source_anchor(&anchor));
+        }
+    }
+
+    #[test]
     fn durable_locator_restores_after_viewport_repagination() {
         let source = CountingSource::new(&["durable locator ".repeat(1_200)]);
         let mut first =
