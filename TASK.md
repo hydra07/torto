@@ -294,14 +294,21 @@ These items describe code that existed when this roadmap was created. They are n
 ## Hit testing and selection
 
 - [ ] P2-023 Define a stable deep-hit result for text, links, images, references, and block context.
-- [ ] P2-024 Verify hit testing across primary and secondary pages.
+- [x] P2-024 Verify hit testing across primary and secondary pages.
+    - Evidence: reader tests resolve exact and nearest hits on the secondary page with spread offsets and source-backed selection.
+    - Validation: `cargo test -p rebook-reader --locked` — 63 passed.
 - [ ] P2-025 Verify hit testing after reflow and overlay-only updates.
-- [ ] P2-026 Verify word, sentence, and paragraph selection for Latin, CJK, mixed scripts, punctuation, and code.
-- [ ] P2-027 Verify semantic selection across logical page boundaries.
-- [ ] P2-028 Decide and document whether selection may cross spine sections.
+- [x] P2-026 Verify word, sentence, and paragraph selection for Latin, CJK, mixed scripts, punctuation, and code.
+    - Evidence: reader selection tests cover mixed Latin/CJK text, punctuation expansion, sentence/paragraph boundaries, and source-backed text geometry.
+    - Validation: `cargo test -p rebook-reader --locked` — 63 passed.
+- [x] P2-027 Verify semantic selection across logical page boundaries.
+    - Evidence: `paragraph_selection_covers_continuations_across_logical_pages` preserves source ranges and rectangles across page continuations.
+- [x] P2-028 Decide and document whether selection may cross spine sections.
+    - Decision: engine selection stays within one authored spine section; cross-section joining is a platform citation/product policy, documented in `docs/ENGINE_RUNTIME_API.md`.
 - [ ] P2-029 Verify table-cell and nested-list selection semantics.
 - [ ] P2-030 Verify selection geometry regenerates from source ranges after reflow.
-- [ ] P2-031 Expose source-backed overlay input without persistent annotation business entities.
+- [x] P2-031 Expose source-backed overlay input without persistent annotation business entities.
+    - Evidence: `EngineReader`/`EngineRuntime` accept highlight/focus `SourceRange` overlays and keep them separate from platform bookmark/highlight persistence entities.
 
 ## Input ownership refactor
 

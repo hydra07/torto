@@ -57,6 +57,10 @@ The runtime object and its reader are intended to be driven by one platform owne
 
 This matrix is about semantic invalidation, not an API promise that every backend reuses every allocation. Implementations should preserve source-backed location even when a broad compiled-segment cache clear is necessary.
 
+## Selection boundary
+
+Selection results are source-backed and may span logical pages, layout segments, and the two pages of a prepared spread within one authored spine section. The engine does not silently join ranges across spine sections; a platform that wants a cross-section quotation must issue separate semantic selections and own the product-level join/citation policy. Word, sentence, paragraph, table-cell, and nested-list expansion remain engine semantics within that boundary.
+
 ## Platform ownership
 
 The platform owns UI, popup behavior, local library management, settings persistence, permissions, content URI/file resolution, clipboard, external links, navigation history/Back policy, bookmark and annotation persistence, and OS lifecycle translation. It persists engine DTOs such as `ReaderStyle`, `LocatorV1`, and source-backed overlay ranges without reproducing pagination, locator recovery, hit testing, or reader behavior.
