@@ -163,7 +163,9 @@ These items describe code that existed when this roadmap was created. They are n
     - Evidence: `ReaderSession::restore_locator` searches source-backed text regions across the href's prepared segments, accepts one visible match, and falls back when the quote is absent or ambiguous.
     - Validation: `locator_quote_recovers_after_source_node_changes` covers Unicode text and page-spanning quotes; `cargo test -p rebook-reader --locked` — 62 passed.
 - [ ] P1-020 Return a structured recovery quality: exact, structural, quote match, href fallback, total fallback, or failure.
-- [ ] P1-021 Add locator schema/version migration tests.
+- [x] P1-021 Add locator schema/version migration tests.
+    - Evidence: publication tests now reject unsupported `LocatorV1` versions and verify `LocatorV1::at_start` defaults for optional recovery fields.
+    - Validation: `cargo test -p rebook-publication --locked` — 9 passed.
 - [x] P1-022 Add tests for parser-node identity changes while text remains equivalent.
     - Evidence: `locator_quote_recovers_after_source_node_changes` changes the source node identity while preserving the text and verifies recovery at the relocated content.
 - [x] P1-023 Add tests for missing href and moved section fallback.

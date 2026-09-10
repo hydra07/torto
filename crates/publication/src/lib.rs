@@ -1362,6 +1362,33 @@ mod tests {
     }
 
     #[test]
+    fn rejects_unsupported_locator_schema_versions() {
+        let publication_id = PublicationId::new("sha256:book").expect("valid ID");
+        let href = PublicationUrl::parse("OPS/chapter.xhtml").expect("valid URL");
+        let mut locator = LocatorV1::at_start(publication_id, href);
+        locator.version = LocatorV1::VERSION.saturating_add(1);
+
+        assert!(matches!(
+            locator.validate(),
+            Err(PublicationError::UnsupportedLocatorVersion(version))
+                if version == LocatorV1::VERSION + 1
+        ));
+    }
+
+    #[test]
+    fn locator_at_start_has_no_unsupported_recovery_fields() {
+        let publication_id = PublicationId::new("sha256:book").expect("valid ID");
+        let href = PublicationUrl::parse("OPS/chapter.xhtml").expect("valid URL");
+        let locator = LocatorV1::at_start(publication_id, href);
+
+        assert_eq!(locator.version, LocatorV1::VERSION);
+        assert!(locator.validate().is_ok());
+        assert!(locator.source.is_none());
+        assert!(locator.partial_cfi.is_none());
+        assert!(locator.text.is_none());
+    }
+
+    #[test]
     fn declared_language_takes_priority_over_title_script() {
         let metadata = Metadata {
             title: "系统之美".into(),
