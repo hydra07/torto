@@ -19,12 +19,11 @@ use rebook_layout::ReaderFontBlob;
 pub use book::EngineBook;
 pub use config::{EngineConfig, OpenReaderRequest, ReaderConfig};
 pub use error::EngineError;
-pub use features::{Bookmark, Highlight, HighlightColor, SearchResult, search_book};
+pub use features::{SearchResult, search_book};
 pub use frame::{FrameTransition, OverlaySet, PageFrameKey, PreparedReaderFrame, SpreadFrameKey};
 pub use input::{PointerEvent, PointerKind, PointerPhase};
 pub use platform::{AppLifecycleEvent, MemoryPressure, ViewportMetrics};
 pub use reader::{EngineAnimationState, EngineNavigationState, EngineReader};
-pub use runtime::{EngineRuntime, OpenBookSummary, PlatformDirective};
 pub use rebook_layout::{
     LayoutViewport, ParagraphIndentMode, ReaderDefaultFont, ReaderFontChoice, ReaderStyle,
     ReaderTypesetting, ReaderTypography, SpreadMode, TypesettingMode,
@@ -36,6 +35,7 @@ pub use rebook_reader::{
     ReaderSelectionRect, ReaderSession, ReaderSnapshot, ReaderSpread, SelectionGranularity,
     TickResult, TocViewItem,
 };
+pub use runtime::{EngineRuntime, OpenBookSummary, PlatformDirective};
 pub use transition::PointerGestureResult;
 
 pub struct Engine {

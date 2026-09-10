@@ -57,18 +57,18 @@ rebook-inspect -> rebook-formats + rebook-publication
 
 More exactly, `rebook-reader` depends on publication, layout, and renderer; renderer depends on layout and publication; layout depends on publication and math; formats depends on HTML and publication; HTML depends only on publication. The desktop binary directly depends on all engine crates because it also implements source wrappers, settings, diagnostics, and rendering bridges.
 
-| Package | Role verified from source | Important third-party dependencies | Coupling profile |
-|---|---|---|---|
-| `rebook-publication` | Pure model/resource boundary | Serde, percent-encoding, thiserror | No UI/GPU/FS/OS/runtime/parser/typography |
-| `rebook-html` | DOM/CSS normalization into IR | roxmltree | Parser only; no UI/GPU/FS/runtime |
-| `rebook-formats` | File/byte import and lazy resources | zip, flate2, quick-xml, scraper, libchm, hayro, image | Filesystem in `open_file`; parser/codec heavy; PDF has raster cache |
-| `rebook-math` | Formula SVG generation | ratex parser/layout/SVG | Renderer utility, otherwise platform independent |
-| `rebook-layout` | Typography, layout and pagination | Parley, ICU4X segmenter, hyphenation, image, resvg, read-fonts | No UI/GPU/OS; resource access through `BookSource`; stateful font caches |
-| `rebook-renderer` | Retained drawing and semantic geometry | anyrender, Parley, kurbo, peniko | No wgpu/Vello/egui/FS/OS/runtime; backend-neutral paint trait, but carries Peniko/Parley types |
-| `rebook-reader` | Session/navigation/cache/prefetch | sentencex, unicode-segmentation | No UI/GPU/FS/OS or async runtime; uses `std::thread`, channels, mutex/condvar |
-| `rebook-desktop` | UI/platform shell plus compositor and optional product features | egui, Vello, wgpu, winit, tokio, reqwest, rusqlite, keyring, rfd | UI/GPU/FS/OS/network/runtime coupled |
-| `rebook-inspect` | Headless parser/IR validation | serde_json | CLI filesystem only; no renderer/layout/UI |
-| platform helper crates | Native window integration | objc2 or windows-sys | OS-specific |
+| Package                | Role verified from source                                       | Important third-party dependencies                               | Coupling profile                                                                               |
+| ---------------------- | --------------------------------------------------------------- | ---------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| `rebook-publication`   | Pure model/resource boundary                                    | Serde, percent-encoding, thiserror                               | No UI/GPU/FS/OS/runtime/parser/typography                                                      |
+| `rebook-html`          | DOM/CSS normalization into IR                                   | roxmltree                                                        | Parser only; no UI/GPU/FS/runtime                                                              |
+| `rebook-formats`       | File/byte import and lazy resources                             | zip, flate2, quick-xml, scraper, libchm, hayro, image            | Filesystem in `open_file`; parser/codec heavy; PDF has raster cache                            |
+| `rebook-math`          | Formula SVG generation                                          | ratex parser/layout/SVG                                          | Renderer utility, otherwise platform independent                                               |
+| `rebook-layout`        | Typography, layout and pagination                               | Parley, ICU4X segmenter, hyphenation, image, resvg, read-fonts   | No UI/GPU/OS; resource access through `BookSource`; stateful font caches                       |
+| `rebook-renderer`      | Retained drawing and semantic geometry                          | anyrender, Parley, kurbo, peniko                                 | No wgpu/Vello/egui/FS/OS/runtime; backend-neutral paint trait, but carries Peniko/Parley types |
+| `rebook-reader`        | Session/navigation/cache/prefetch                               | sentencex, unicode-segmentation                                  | No UI/GPU/FS/OS or async runtime; uses `std::thread`, channels, mutex/condvar                  |
+| `rebook-desktop`       | UI/platform shell plus compositor and optional product features | egui, Vello, wgpu, winit, tokio, reqwest, rusqlite, keyring, rfd | UI/GPU/FS/OS/network/runtime coupled                                                           |
+| `rebook-inspect`       | Headless parser/IR validation                                   | serde_json                                                       | CLI filesystem only; no renderer/layout/UI                                                     |
+| platform helper crates | Native window integration                                       | objc2 or windows-sys                                             | OS-specific                                                                                    |
 
 The intended typography stack is already present. `rebook-layout` calls Parley directly; `cargo tree -p rebook-layout` shows Fontique, HarfRust, ICU normalizer/properties/segmenter, and Skrifa beneath Parley. ICU4X line segmentation is also used directly in `crates/layout/src/linebreak/parley.rs`. There is no direct HarfRust API use in Torto source.
 
@@ -171,18 +171,18 @@ One architectural caveat is that semantic indexes are stored beside paint comman
 
 Subsystem classification:
 
-| Subsystem and exact symbols | Current responsibility | Classification |
-|---|---|---|
-| Session state: `ReaderSession`, `ReaderSnapshot`, `ReaderLocation`, `ReaderPosition` | Own source/layout/compiler, active position, TOC indexes and cache generation | CORE BUT SPLIT INTERNALLY |
-| Section preparation: `SectionRepository`, `SectionSlotState`, `PreparedSection`, `ContentFragment`, `LayoutSegment`, `prepare_section`, `fragment_section_blocks`, `build_layout_segments` | Lazy parse and bounded compilation units | CORE |
-| Pagination compile/cache: `SegmentKey`, `CachedSegment`, `compile_segment`, `ensure_segment`, `touch`, `evict` | Layout-to-display-list orchestration and LRU | CORE |
-| Prefetch: `PrefetchWorker`, request/result/key, queue/poll/wait/install methods | Background section load/layout/compile with generations | CORE policy/caching |
-| Navigation: `turn_page`, `try_turn_page`, `go_to_*`, `try_go_to_*`, next/previous position methods, `NavigationAttempt` | Blocking and non-blocking movement, cross-segment/section spreads | CORE |
-| Spread/page access: `ReaderSpread`, `ReaderSectionPage`, `current_spread`, `current_section_pages`, `current_reading_unit_pages`, `resolve_spread_offsets` | Presentation-neutral page assembly | CORE |
-| Locators: `current_locator`, `restore_locator`, `position_for_source_anchor`, href/anchor methods | Durable location ↔ pagination mapping | CORE |
-| Selection/hits: `ReaderTextHit`, `ReaderSelection`, `ReaderSelectionRect`, `ReaderImage`, hit/source/image methods and selection helpers | Converts retained page interaction into durable ranges | CORE |
-| Reading units/TOC: `ReadingUnit`, `FixedReadingUnit`, `ReadingUnitLocation`, `TocIndex`, `TocViewItem`, flatten/active helpers | Semantic navigation and presentation-ready TOC flattening | CORE, with some policy |
-| Segmentation: `sentence_byte_ranges*`, `sentence_char_ranges`, semantic selection helpers | Sentence/word/paragraph expansion | CORE semantic utility |
+| Subsystem and exact symbols                                                                                                                                                                | Current responsibility                                                        | Classification            |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------- | ------------------------- |
+| Session state: `ReaderSession`, `ReaderSnapshot`, `ReaderLocation`, `ReaderPosition`                                                                                                       | Own source/layout/compiler, active position, TOC indexes and cache generation | CORE BUT SPLIT INTERNALLY |
+| Section preparation: `SectionRepository`, `SectionSlotState`, `PreparedSection`, `ContentFragment`, `LayoutSegment`, `prepare_section`, `fragment_section_blocks`, `build_layout_segments` | Lazy parse and bounded compilation units                                      | CORE                      |
+| Pagination compile/cache: `SegmentKey`, `CachedSegment`, `compile_segment`, `ensure_segment`, `touch`, `evict`                                                                             | Layout-to-display-list orchestration and LRU                                  | CORE                      |
+| Prefetch: `PrefetchWorker`, request/result/key, queue/poll/wait/install methods                                                                                                            | Background section load/layout/compile with generations                       | CORE policy/caching       |
+| Navigation: `turn_page`, `try_turn_page`, `go_to_*`, `try_go_to_*`, next/previous position methods, `NavigationAttempt`                                                                    | Blocking and non-blocking movement, cross-segment/section spreads             | CORE                      |
+| Spread/page access: `ReaderSpread`, `ReaderSectionPage`, `current_spread`, `current_section_pages`, `current_reading_unit_pages`, `resolve_spread_offsets`                                 | Presentation-neutral page assembly                                            | CORE                      |
+| Locators: `current_locator`, `restore_locator`, `position_for_source_anchor`, href/anchor methods                                                                                          | Durable location ↔ pagination mapping                                         | CORE                      |
+| Selection/hits: `ReaderTextHit`, `ReaderSelection`, `ReaderSelectionRect`, `ReaderImage`, hit/source/image methods and selection helpers                                                   | Converts retained page interaction into durable ranges                        | CORE                      |
+| Reading units/TOC: `ReadingUnit`, `FixedReadingUnit`, `ReadingUnitLocation`, `TocIndex`, `TocViewItem`, flatten/active helpers                                                             | Semantic navigation and presentation-ready TOC flattening                     | CORE, with some policy    |
+| Segmentation: `sentence_byte_ranges*`, `sentence_char_ranges`, semantic selection helpers                                                                                                  | Sentence/word/paragraph expansion                                             | CORE semantic utility     |
 
 `SectionRepository` prevents duplicate parses with a mutex/condvar and stores weak prepared-section references; cached segments retain the active prepared section. `PrefetchWorker::spawn` owns a separate `LayoutEngine` and `DisplayListCompiler`, receives generation-tagged requests, and compiles off the caller thread. `try_ensure_navigation_segment` cancels stale speculative generations so direct navigation is prioritized. `NavigationAttempt::Pending` is therefore a real non-blocking contract, not a UI fiction.
 
@@ -249,27 +249,27 @@ Approximate production/test LOC uses the module-level test boundary when present
 
 ## 14. Large / Mixed Files
 
-| path | total LOC | prod LOC | test LOC | responsibilities | severity |
-|---|---:|---:|---:|---|---|
-| `crates/layout/src/lib.rs` | 8,189 | ~4,148 | ~4,041 | style/fonts, shaping, script policy, tables/media/math, fixed layout, pagination | GOD FILE |
-| `crates/reader/src/lib.rs` | 6,759 | ~4,293 | ~2,466 | session, repository, segments, navigation, cache/prefetch, spreads, locators, selection, TOC/units | GOD FILE |
-| `crates/html/src/lib.rs` | 6,156 | ~3,703 | ~2,453 | structural HTML parser, inline collector, CSS cascade, semantic recovery | GOD FILE |
-| `apps/desktop/src/reader/egui_view.rs` | 6,251 | ~5,485 | ~766 | entire reader UI, panels, shortcuts, gestures, assistant/search/TOC, texture presentation | GOD FILE |
-| `apps/desktop/src/reader/mod.rs` | 4,899 | ~3,341 | ~1,558 | desktop reader aggregate, source wrappers, focus/scroll state, optional product features | GOD FILE |
-| `apps/desktop/src/plugins/pdf_ocr.rs` | 4,089 | ~2,121 | ~1,968 | PDF OCR workflow/source overlay/tests; optional, outside kernel | SHOULD SPLIT |
-| `apps/desktop/src/plugins/ai.rs` | 3,698 | ~2,506 | ~1,192 | LLM provider/request orchestration and tests; optional | SHOULD SPLIT |
-| `crates/renderer/src/lib.rs` | 3,156 | ~2,090 | ~1,066 | compilation, retained commands, hit maps, selections, replay | SHOULD SPLIT |
-| `apps/desktop/src/plugins/translation.rs` | 3,001 | ~1,800 | ~1,201 | translation workflow/source overlays; optional | SHOULD SPLIT |
-| `apps/desktop/src/settings/egui_view.rs` | 2,725 | ~2,494 | ~231 | settings UI | SHOULD SPLIT |
-| `apps/desktop/src/reader/chat_markdown.rs` | 2,614 | ~1,725 | ~889 | chat Markdown layout/render/cache | SHOULD SPLIT |
-| `apps/desktop/src/reader/assistant.rs` | 2,405 | ~2,209 | ~196 | reader assistant policy/state | SHOULD SPLIT |
-| `crates/formats/src/epub.rs` | 2,117 | ~1,491 | ~626 | archive safety, package/nav parsing, lazy source | SHOULD SPLIT |
-| `crates/formats/src/kf8.rs` | 1,808 | ~1,774 | ~34 | PalmDB/KF8/MOBI6 parsing, decompression, resources/TOC | SHOULD SPLIT |
-| `crates/publication/src/lib.rs` | 1,406 | ~1,317 | ~89 | coherent public model and contracts | OK |
-| `apps/desktop/src/reader/render/scene.rs` | 501 | ~437 | ~64 | Vello composition/layers/cache/overlays | OK |
-| `apps/desktop/src/platform/gpu.rs` | 503 | ~483 | ~20 | wgpu/Vello target and desktop surface | OK |
-| `apps/desktop/src/reader/render/vello.rs` | 155 | 155 | 0 | anyrender-to-Vello adapter | OK |
-| `apps/inspect/src/main.rs` | 78 | 78 | 0 | headless inspection CLI | OK |
+| path                                       | total LOC | prod LOC | test LOC | responsibilities                                                                                   | severity     |
+| ------------------------------------------ | --------: | -------: | -------: | -------------------------------------------------------------------------------------------------- | ------------ |
+| `crates/layout/src/lib.rs`                 |     8,189 |   ~4,148 |   ~4,041 | style/fonts, shaping, script policy, tables/media/math, fixed layout, pagination                   | GOD FILE     |
+| `crates/reader/src/lib.rs`                 |     6,759 |   ~4,293 |   ~2,466 | session, repository, segments, navigation, cache/prefetch, spreads, locators, selection, TOC/units | GOD FILE     |
+| `crates/html/src/lib.rs`                   |     6,156 |   ~3,703 |   ~2,453 | structural HTML parser, inline collector, CSS cascade, semantic recovery                           | GOD FILE     |
+| `apps/desktop/src/reader/egui_view.rs`     |     6,251 |   ~5,485 |     ~766 | entire reader UI, panels, shortcuts, gestures, assistant/search/TOC, texture presentation          | GOD FILE     |
+| `apps/desktop/src/reader/mod.rs`           |     4,899 |   ~3,341 |   ~1,558 | desktop reader aggregate, source wrappers, focus/scroll state, optional product features           | GOD FILE     |
+| `apps/desktop/src/plugins/pdf_ocr.rs`      |     4,089 |   ~2,121 |   ~1,968 | PDF OCR workflow/source overlay/tests; optional, outside kernel                                    | SHOULD SPLIT |
+| `apps/desktop/src/plugins/ai.rs`           |     3,698 |   ~2,506 |   ~1,192 | LLM provider/request orchestration and tests; optional                                             | SHOULD SPLIT |
+| `crates/renderer/src/lib.rs`               |     3,156 |   ~2,090 |   ~1,066 | compilation, retained commands, hit maps, selections, replay                                       | SHOULD SPLIT |
+| `apps/desktop/src/plugins/translation.rs`  |     3,001 |   ~1,800 |   ~1,201 | translation workflow/source overlays; optional                                                     | SHOULD SPLIT |
+| `apps/desktop/src/settings/egui_view.rs`   |     2,725 |   ~2,494 |     ~231 | settings UI                                                                                        | SHOULD SPLIT |
+| `apps/desktop/src/reader/chat_markdown.rs` |     2,614 |   ~1,725 |     ~889 | chat Markdown layout/render/cache                                                                  | SHOULD SPLIT |
+| `apps/desktop/src/reader/assistant.rs`     |     2,405 |   ~2,209 |     ~196 | reader assistant policy/state                                                                      | SHOULD SPLIT |
+| `crates/formats/src/epub.rs`               |     2,117 |   ~1,491 |     ~626 | archive safety, package/nav parsing, lazy source                                                   | SHOULD SPLIT |
+| `crates/formats/src/kf8.rs`                |     1,808 |   ~1,774 |      ~34 | PalmDB/KF8/MOBI6 parsing, decompression, resources/TOC                                             | SHOULD SPLIT |
+| `crates/publication/src/lib.rs`            |     1,406 |   ~1,317 |      ~89 | coherent public model and contracts                                                                | OK           |
+| `apps/desktop/src/reader/render/scene.rs`  |       501 |     ~437 |      ~64 | Vello composition/layers/cache/overlays                                                            | OK           |
+| `apps/desktop/src/platform/gpu.rs`         |       503 |     ~483 |      ~20 | wgpu/Vello target and desktop surface                                                              | OK           |
+| `apps/desktop/src/reader/render/vello.rs`  |       155 |      155 |        0 | anyrender-to-Vello adapter                                                                         | OK           |
+| `apps/inspect/src/main.rs`                 |        78 |       78 |        0 | headless inspection CLI                                                                            | OK           |
 
 Other desktop 2k+ files are product/UI concerns and were inventoried but are not reader-kernel boundaries. Third-party patched egui sources are vendored dependencies, not Torto architecture, and are excluded from this table.
 
@@ -282,9 +282,9 @@ The real boundaries today are:
 3. `PageLayout` is the pagination/shaping output boundary, but it intentionally contains Parley layouts and decoded rasters rather than being a pure serializable geometry model.
 4. `PageDisplayList` is the retained page and viewport-semantic boundary. It exposes replay and semantic queries without GPU/UI types.
 5. `ReaderSession` is the reusable behavioral kernel boundary. It owns pagination generations and returns retained pages/spreads plus durable semantic results.
-6. `VelloScene`/`ReaderScene` is an implicit reusable compositor boundary currently embedded under desktop.
-7. `GpuState` plus application/event-loop code is the actual desktop platform boundary.
-8. AI, search UI, translation, OCR, sync and persistence are desktop services/source wrappers, not part of the render kernel, although some currently feed overlays back through `DesktopReader`.
+6. `PreparedReaderFrame` is the explicit backend-neutral frame boundary exposed by `rebook-engine`; `VelloScene`/`ReaderScene` composition now lives in the reusable `rebook-vello-backend` crate.
+7. `GpuState` plus application/event-loop code is a platform surface boundary; the inherited desktop shell is one consumer, not the engine architecture.
+8. AI, search UI, translation, OCR, sync and persistence are platform services/source wrappers, not part of the render kernel, although the inherited desktop application currently feeds some overlays back through `DesktopReader`.
 
 Crate boundaries mostly align with these stages; the exceptions are internal cohesion and the misplaced compositor. There is no evidence supporting a rewrite or replacement of the six core crates.
 
@@ -306,24 +306,24 @@ formats -> html -> publication
                                               platform wgpu surface
 ```
 
-| Component | Classification | Reason |
-|---|---|---|
-| `rebook-publication` | CORE | Canonical semantic/source model |
-| `rebook-html` | CORE BUT SPLIT INTERNALLY | Shared reflow parser; large physical module |
-| `rebook-formats` | CORE BUT SPLIT INTERNALLY | Required import adapters; format-specific internals remain isolated |
-| `rebook-layout` | CORE BUT SPLIT INTERNALLY | Pagination and typography kernel |
-| `rebook-renderer` | CORE BUT SPLIT INTERNALLY | Retained backend-neutral page representation |
-| `rebook-reader` | CORE BUT SPLIT INTERNALLY | Platform-independent reader/session kernel |
-| Vello bridge and page compositor now under desktop | CORE candidate after dependency inversion | Android can reuse retained-page scene assembly |
-| wgpu target/surface adapters | Platform shell | Separate desktop and future Android ownership |
-| `apps/inspect` | DEV TOOL | Headless parser/IR validation |
-| `rebook-math` | OPTIONAL core support | Needed for formula-bearing books; also used by chat |
-| macOS/Windows helper crates | DESKTOP SHELL | Native desktop integration only |
-| egui views, shelf, settings | DESKTOP SHELL | Desktop application/UI |
-| AI/chat/search UI/translation/OCR/generated metadata/TOC | OPTIONAL | Keep outside hot rendering path and kernel baseline |
-| sync, updater, statistics, WebDAV, keyring | REMOVE FROM MINIMAL APP | Product services unrelated to minimal reading |
+| Component                                                | Classification            | Reason                                                                                         |
+| -------------------------------------------------------- | ------------------------- | ---------------------------------------------------------------------------------------------- |
+| `rebook-publication`                                     | CORE                      | Canonical semantic/source model                                                                |
+| `rebook-html`                                            | CORE BUT SPLIT INTERNALLY | Shared reflow parser; large physical module                                                    |
+| `rebook-formats`                                         | CORE BUT SPLIT INTERNALLY | Required import adapters; format-specific internals remain isolated                            |
+| `rebook-layout`                                          | CORE BUT SPLIT INTERNALLY | Pagination and typography kernel                                                               |
+| `rebook-renderer`                                        | CORE BUT SPLIT INTERNALLY | Retained backend-neutral page representation                                                   |
+| `rebook-reader`                                          | CORE BUT SPLIT INTERNALLY | Platform-independent reader/session kernel                                                     |
+| `rebook-vello-backend`                                   | OPTIONAL BACKEND          | Consumes prepared frames and owns Vello scene/cache composition; must not own reader semantics |
+| wgpu target/surface adapters                             | PLATFORM SHELL            | Separate desktop, WASM, and future Android ownership                                           |
+| `apps/inspect`                                           | DEV TOOL                  | Headless parser/IR validation                                                                  |
+| `rebook-math`                                            | OPTIONAL core support     | Needed for formula-bearing books; also used by chat                                            |
+| macOS/Windows helper crates                              | DESKTOP SHELL             | Native desktop integration only                                                                |
+| egui views, shelf, settings                              | DESKTOP SHELL             | Desktop application/UI                                                                         |
+| AI/chat/search UI/translation/OCR/generated metadata/TOC | OPTIONAL                  | Keep outside hot rendering path and kernel baseline                                            |
+| sync, updater, statistics, WebDAV, keyring               | REMOVE FROM MINIMAL APP   | Product services unrelated to minimal reading                                                  |
 
-A new compositor crate is not yet justified. First make scene composition a self-contained desktop module with explicit inputs. Extract a crate only when Android integration demonstrates a second consumer and its dependency surface is known.
+The compositor has been extracted into `rebook-vello-backend`. Keep it optional and backend-specific: the core engine must remain free of Vello/wgpu, and promotion of additional backend behavior requires a real second consumer and an explicit dependency audit.
 
 ## 17. Mechanical Modularization Plan
 

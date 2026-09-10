@@ -28,16 +28,16 @@ Rules:
 Add a short indented note below a completed or blocked item:
 
 ```markdown
-  - Evidence: `path`, relevant symbols, and commands run.
-  - Validation: `cargo test -p ...` — passed on YYYY-MM-DD.
+- Evidence: `path`, relevant symbols, and commands run.
+- Validation: `cargo test -p ...` — passed on YYYY-MM-DD.
 ```
 
 For blockers:
 
 ```markdown
-  - Blocked: exact error or missing prerequisite.
-  - Affected: paths and symbols.
-  - Next: bounded recommended action.
+- Blocked: exact error or missing prerequisite.
+- Affected: paths and symbols.
+- Next: bounded recommended action.
 ```
 
 ---
@@ -47,25 +47,25 @@ For blockers:
 These items describe code that existed when this roadmap was created. They are not proof that the API is stable or fully validated.
 
 - [x] BASE-001 Platform-neutral engine facade exists.
-  - Evidence: `crates/engine/src/lib.rs`, `Engine`, `EngineBook`, and `EngineReader`.
+    - Evidence: `crates/engine/src/lib.rs`, `Engine`, `EngineBook`, and `EngineReader`.
 - [x] BASE-002 Product-neutral runtime aggregate exists.
-  - Evidence: `crates/engine/src/runtime.rs`, `EngineRuntime`.
+    - Evidence: `crates/engine/src/runtime.rs`, `EngineRuntime`.
 - [x] BASE-003 Non-committing navigation preparation exists.
-  - Evidence: `EngineReader::{prepare_navigation,poll_navigation,commit_navigation,cancel_navigation}` and corresponding reader APIs.
+    - Evidence: `EngineReader::{prepare_navigation,poll_navigation,commit_navigation,cancel_navigation}` and corresponding reader APIs.
 - [x] BASE-004 Backend-neutral prepared frame exists.
-  - Evidence: `crates/engine/src/frame.rs`, `PreparedReaderFrame`.
+    - Evidence: `crates/engine/src/frame.rs`, `PreparedReaderFrame`.
 - [x] BASE-005 Shared Vello backend exists.
-  - Evidence: `crates/vello-backend`.
+    - Evidence: `crates/vello-backend`.
 - [x] BASE-006 Native engine demo exists.
-  - Evidence: `apps/engine-demo`.
+    - Evidence: `apps/engine-demo`.
 - [x] BASE-007 WASM adapter exists.
-  - Evidence: `crates/engine-wasm`.
+    - Evidence: `crates/engine-wasm`.
 - [x] BASE-008 Android native host boundary exists.
-  - Evidence: `apps/android/src/lib.rs`; JNI and Activity are explicitly not implemented.
+    - Evidence: `apps/android/src/lib.rs`; JNI and Activity are explicitly not implemented.
 - [x] BASE-009 Pointer-driven slide/curl transition prototype exists.
-  - Evidence: `crates/engine/src/transition.rs` and `crates/engine/src/reader.rs`.
+    - Evidence: `crates/engine/src/transition.rs` and `crates/engine/src/reader.rs`.
 - [x] BASE-010 Curl3D backend work exists as an experiment/WIP.
-  - Evidence: `crates/vello-backend/src/curl_3d.rs` and `crates/vello-backend/src/shaders/`.
+    - Evidence: `crates/vello-backend/src/curl_3d.rs` and `crates/vello-backend/src/shaders/`.
 
 ---
 
@@ -73,31 +73,45 @@ These items describe code that existed when this roadmap was created. They are n
 
 ## Repository and dependency audit
 
-- [ ] P0-001 Capture a clean baseline report for current tracked and untracked work without modifying user WIP.
-- [ ] P0-002 Run and record narrow build/test status for `rebook-publication`, `rebook-reader`, `rebook-engine`, `rebook-vello-backend`, and `rebook-engine-demo`.
-- [ ] P0-003 Run and record WASM target check for `rebook-engine-wasm`.
-- [ ] P0-004 Run and record Android target check for `rebook-android-host`, or document missing local toolchain prerequisites.
-- [ ] P0-005 Generate a dependency map for core crates, backend crates, adapters, demo, and inherited desktop.
-- [ ] P0-006 Verify `rebook-engine` has no UI, GPU, platform, network, database, sync, keyring, updater, or provider dependencies.
+- [x] P0-001 Capture a clean baseline report for current tracked and untracked work without modifying user WIP.
+    - Evidence: commit `d52342f`; baseline status preserved `crates/vello-backend/src/curl_3d.rs`, `crates/vello-backend/src/shaders/`, and the three untracked ebook reports.
+- [x] P0-002 Run and record narrow build/test status for `rebook-publication`, `rebook-reader`, `rebook-engine`, `rebook-vello-backend`, and `rebook-engine-demo`.
+    - Validation: `cargo test -p rebook-publication --locked` (7 passed), `cargo test -p rebook-reader --locked` (56 passed), `cargo test -p rebook-engine --locked` (14 passed), `cargo test -p rebook-vello-backend --locked` (8 passed), `cargo test -p rebook-engine-demo --locked` (9 passed). Demo retains two warnings from Curl WIP fields/imports.
+- [x] P0-003 Run and record WASM target check for `rebook-engine-wasm`.
+    - Validation: `cargo check -p rebook-engine-wasm --target wasm32-unknown-unknown --locked` — passed.
+- [x] P0-004 Run and record Android target check for `rebook-android-host`, or document missing local toolchain prerequisites.
+    - Validation: `cargo check -p rebook-android-host --target aarch64-linux-android --locked` — passed; target is installed.
+- [x] P0-005 Generate a dependency map for core crates, backend crates, adapters, demo, and inherited desktop.
+    - Evidence: `cargo metadata --no-deps --format-version 1`; package manifests; `cargo tree -p rebook-engine`, `cargo tree -p rebook-engine-wasm`, and `cargo tree -p rebook-android-host`.
+- [x] P0-006 Verify `rebook-engine` has no UI, GPU, platform, network, database, sync, keyring, updater, or provider dependencies.
+    - Evidence: `crates/engine/Cargo.toml` and inspected normal dependency tree contain only formats, layout, publication, reader, renderer, regex, serde, serde_json, thiserror, and web-time.
 - [ ] P0-007 Audit target-specific format feature closure for native default, EPUB-only WASM, and Android builds.
-- [ ] P0-008 Audit direct low-level crate dependencies in `apps/engine-demo` and classify each as required backend/tooling access or facade gap.
+- [x] P0-008 Audit direct low-level crate dependencies in `apps/engine-demo` and classify each as required backend/tooling access or facade gap.
+    - Evidence: `apps/engine-demo/Cargo.toml`; direct layout/publication/reader/renderer imports are demo inspection/render-lab access, while Vello/wgpu/winit belong to the demo surface/backend and not core.
 - [ ] P0-009 Audit direct low-level crate dependencies in `crates/engine-wasm` and classify each as required backend/ABI access or facade gap.
 
 ## Public API ownership
 
-- [ ] P0-010 Inventory every public export from `rebook-engine`.
+- [x] P0-010 Inventory every public export from `rebook-engine`.
+    - Evidence: `crates/engine/src/lib.rs` exports config/error/features/frame/input/platform/reader/runtime/transition and selected lower-level reader/layout/publication types.
 - [ ] P0-011 Classify exports as stable core, optional helper, experimental, legacy compatibility, or accidental.
 - [ ] P0-012 Decide whether `ReaderSession` and lower-level reader types should remain re-exported by the product-facing facade.
-- [ ] P0-013 Decide whether persistent `Bookmark`, `Highlight`, and `HighlightColor` entities belong in engine API.
-- [ ] P0-014 Replace product-shaped annotation entities with persistence-neutral overlay/source primitives if P0-013 removes them.
+- [x] P0-013 Decide whether persistent `Bookmark`, `Highlight`, and `HighlightColor` entities belong in engine API.
+    - Decision: these are platform persistence/product entities and do not belong in the engine API; the engine retains `LocatorV1`, `SourceRange`, `SearchResult`, and overlay ranges.
+- [x] P0-014 Replace product-shaped annotation entities with persistence-neutral overlay/source primitives if P0-013 removes them.
+    - Evidence: removed unused persistent entities from `crates/engine/src/features.rs` and their exports from `crates/engine/src/lib.rs`; existing `OverlaySet` and `SourceRange` remain available.
+    - Validation: `cargo check -p rebook-engine --locked`, `cargo test -p rebook-engine --locked` — 14 passed.
 - [ ] P0-015 Mark transition and Curl APIs as stable or experimental explicitly.
 - [ ] P0-016 Define a deprecation policy for accidental public exports before removing them.
 
 ## Documentation rebaseline
 
-- [ ] P0-017 Update `docs/ARCHITECTURE.md` for `crates/engine`, `crates/engine-wasm`, `apps/android`, and `crates/vello-backend`.
-- [ ] P0-018 Mark `apps/desktop` as inherited/reference architecture in repository documentation.
-- [ ] P0-019 Update `docs/ENGINE_RUNTIME_API.md` to state that new platform adapters use `EngineRuntime`, while inherited desktop migration is optional.
+- [x] P0-017 Update `docs/ARCHITECTURE.md` for `crates/engine`, `crates/engine-wasm`, `apps/android`, and `crates/vello-backend`.
+    - Evidence: current-boundary update in `docs/ARCHITECTURE.md` sections 15–16.
+- [x] P0-018 Mark `apps/desktop` as inherited/reference architecture in repository documentation.
+    - Evidence: `docs/ARCHITECTURE.md` now identifies the inherited desktop shell as a consumer, not the engine architecture.
+- [x] P0-019 Update `docs/ENGINE_RUNTIME_API.md` to state that new platform adapters use `EngineRuntime`, while inherited desktop migration is optional.
+    - Evidence: `docs/ENGINE_RUNTIME_API.md:3` and platform ownership section.
 - [ ] P0-020 Classify each `ebook_reader_*.md` file as research, product target, or target capability architecture rather than current implementation truth.
 - [ ] P0-021 Add repository baseline commit/date and engine/platform ownership statement to the ebook reports.
 - [ ] P0-022 Remove or reconcile stale roadmap claims in the ebook reports that conflict with current engine, WASM, Android-host, and compositor code.

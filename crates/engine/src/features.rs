@@ -5,39 +5,6 @@ use rebook_publication::{
 use regex::RegexBuilder;
 use serde::{Deserialize, Serialize};
 
-/// Persistent bookmark pointing to a canonical locator in the book.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct Bookmark {
-    pub id: String,
-    pub title: String,
-    pub locator: LocatorV1,
-    pub created_at_ms: i64,
-}
-
-/// Color category for persistent text highlights.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
-#[serde(rename_all = "lowercase")]
-pub enum HighlightColor {
-    #[default]
-    Yellow,
-    Green,
-    Blue,
-    Purple,
-    Red,
-}
-
-/// Persistent user highlight / note.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct Highlight {
-    pub id: String,
-    pub range: SourceRange,
-    pub text: String,
-    pub color: HighlightColor,
-    pub note: Option<String>,
-    pub locator: LocatorV1,
-    pub created_at_ms: i64,
-}
-
 /// A matched full-text search result inside the book content.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SearchResult {
@@ -105,7 +72,12 @@ pub fn search_book(
                         results.push(SearchResult {
                             section_index,
                             section_title: section_title.clone(),
-                            excerpt: excerpt(&text, found.start(), found.end(), DEFAULT_CONTEXT_CHARS),
+                            excerpt: excerpt(
+                                &text,
+                                found.start(),
+                                found.end(),
+                                DEFAULT_CONTEXT_CHARS,
+                            ),
                             matched_text: found.as_str().to_owned(),
                             block_kind: "table-cell".into(),
                             range,
