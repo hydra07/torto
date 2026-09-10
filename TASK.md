@@ -431,7 +431,10 @@ These items describe code that existed when this roadmap was created. They are n
 - [x] P4-013 Verify None renders and commits deterministically without animation.
     - Evidence: `test_prepared_reader_frame` confirms repeated `None` frames retain the same key/revisions, report no next frame, leave animation idle, and preserve committed position.
     - Validation: `cargo test -p rebook-engine --locked` — 15 passed.
-- [ ] P4-014 Verify Slide uses prepared source/destination scenes.
+- [!] P4-014 Verify Slide uses prepared source/destination scenes.
+    - Blocked: `ReaderCompositor` and `CpuSurfaceRenderer` consume prepared current/destination spreads for `FrameTransition::Slide`, but `EngineReader::frame` currently emits Curl for interactive navigation and has no stable Slide producer.
+    - Affected: `crates/engine/src/reader.rs`, `crates/vello-backend/src/compositor.rs`, `crates/engine-wasm/src/cpu_surface.rs`.
+    - Next: define transition selection and a stable Slide producer before end-to-end verification; keep Curl outside the Engine v1 critical path.
 - [ ] P4-015 Verify Slide commit happens only after successful settle.
 - [ ] P4-016 Verify Slide cancel returns to the exact source locator.
 - [ ] P4-017 Verify surface/device errors do not silently commit navigation.
