@@ -339,8 +339,10 @@ These items describe code that existed when this roadmap was created. They are n
 
 ## API design
 
-- [ ] P3-001 Define Engine v1 use cases and the minimum call sequence for each.
-- [ ] P3-002 Group API operations into open, inspect, configure, command, tick, frame, query, lifecycle, and close.
+- [x] P3-001 Define Engine v1 use cases and the minimum call sequence for each.
+    - Evidence: `docs/ENGINE_V1_API.md` defines open/resume, semantic navigation, frame production, source-backed selection, and lifecycle/memory-pressure sequences.
+- [x] P3-002 Group API operations into open, inspect, configure, command, tick, frame, query, lifecycle, and close.
+    - Evidence: `docs/ENGINE_V1_API.md` groups the current `EngineRuntime` operations and assigns ownership to engine versus platform.
 - [ ] P3-003 Define structured runtime status for idle, pending, frame-ready, needs-frame, boundary, recoverable error, and fatal error.
 - [ ] P3-004 Define operation/token semantics for work spanning multiple calls.
 - [ ] P3-005 Define cancellation behavior for open, navigation, layout, prefetch, and close.
