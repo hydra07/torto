@@ -1,4 +1,8 @@
-//! Platform-neutral page transition policy and gesture state.
+//! Experimental platform-neutral page transition policy and gesture state.
+//!
+//! Transition and pointer-gesture APIs are not stable Engine v1 contracts yet.
+//! They remain available for shared prototypes while platform adapters converge
+//! on a second production consumer.
 
 use std::collections::VecDeque;
 use std::time::Duration;

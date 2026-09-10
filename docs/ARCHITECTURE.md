@@ -370,7 +370,24 @@ formats -> html -> publication
 
 The compositor has been extracted into `rebook-vello-backend`. Keep it optional and backend-specific: the core engine must remain free of Vello/wgpu, and promotion of additional backend behavior requires a real second consumer and an explicit dependency audit.
 
-## 17. Mechanical Modularization Plan
+## 17. Engine Public API Classification
+
+The `rebook-engine` facade is the product-neutral entry point. New platform adapters should prefer `EngineRuntime`, `Engine`, `EngineBook`, `EngineReader`, the prepared-frame types, lifecycle/platform signals, and the semantic locator/source-range types.
+
+| Export group                                                                                                                                    | Classification       | Policy                                                                                                                                        |
+| ----------------------------------------------------------------------------------------------------------------------------------------------- | -------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Engine`, `EngineBook`, `EngineReader`, `EngineRuntime`, `EngineConfig`, `ReaderConfig`, `OpenReaderRequest`, `EngineError`                     | Stable core          | Additive changes require normal compatibility review; these are the primary adapter boundary.                                                 |
+| `PreparedReaderFrame`, `FrameTransition`, `OverlaySet`, `PageFrameKey`, `SpreadFrameKey`, `LocatorV1`, `SourceRange`, navigation/selection DTOs | Stable core DTOs     | Keep backend-neutral and persistence-neutral; do not add product state.                                                                       |
+| Reader/layout configuration re-exports                                                                                                          | Stable helper        | Required to configure the shared engine; keep names and serde behavior deliberate.                                                            |
+| `ReaderSession` and lower-level `rebook-reader` re-exports                                                                                      | Compatibility/helper | Retain for advanced consumers and migration, but new adapters should use `EngineReader`/`EngineRuntime`; do not expand this surface casually. |
+| `transition` module, `PointerGestureController`, `PointerGestureResult`, `TransitionKind::Curl`, and curl fields in `FrameTransition`           | Experimental         | Platform-neutral intent/transition prototype; behavior and representation may change before a second production consumer exists.              |
+| `rebook-vello-backend`                                                                                                                          | Optional backend     | Not part of the core engine API; owns Vello scene composition and backend cache behavior.                                                     |
+
+### Compatibility and deprecation policy
+
+The facade follows additive-first Engine v1 compatibility. Accidental or compatibility exports are not removed in place: first document the preferred replacement, then add a deprecation attribute with a migration note, keep it through at least one minor release, and remove it only in a deliberate major/API-generation change. Experimental transition APIs may change without the stable-core guarantee, but their experimental status must remain visible in rustdoc and architecture documentation.
+
+## 18. Mechanical Modularization Plan
 
 These are file moves and visibility adjustments, not behavior/API changes.
 

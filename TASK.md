@@ -96,15 +96,19 @@ These items describe code that existed when this roadmap was created. They are n
 
 - [x] P0-010 Inventory every public export from `rebook-engine`.
     - Evidence: `crates/engine/src/lib.rs` exports config/error/features/frame/input/platform/reader/runtime/transition and selected lower-level reader/layout/publication types.
-- [ ] P0-011 Classify exports as stable core, optional helper, experimental, legacy compatibility, or accidental.
-- [ ] P0-012 Decide whether `ReaderSession` and lower-level reader types should remain re-exported by the product-facing facade.
+- [x] P0-011 Classify exports as stable core, optional helper, experimental, legacy compatibility, or accidental.
+    - Evidence: `docs/ARCHITECTURE.md` section 17 classifies the engine facade, DTOs, configuration re-exports, lower-level reader compatibility exports, transition APIs, and optional Vello backend.
+- [x] P0-012 Decide whether `ReaderSession` and lower-level reader types should remain re-exported by the product-facing facade.
+    - Decision: retain them temporarily as compatibility/helpers for advanced consumers and migration, but require new platform adapters to use `EngineRuntime`/`EngineReader` and do not expand the low-level surface casually.
 - [x] P0-013 Decide whether persistent `Bookmark`, `Highlight`, and `HighlightColor` entities belong in engine API.
     - Decision: these are platform persistence/product entities and do not belong in the engine API; the engine retains `LocatorV1`, `SourceRange`, `SearchResult`, and overlay ranges.
 - [x] P0-014 Replace product-shaped annotation entities with persistence-neutral overlay/source primitives if P0-013 removes them.
     - Evidence: removed unused persistent entities from `crates/engine/src/features.rs` and their exports from `crates/engine/src/lib.rs`; existing `OverlaySet` and `SourceRange` remain available.
     - Validation: `cargo check -p rebook-engine --locked`, `cargo test -p rebook-engine --locked` — 14 passed.
-- [ ] P0-015 Mark transition and Curl APIs as stable or experimental explicitly.
-- [ ] P0-016 Define a deprecation policy for accidental public exports before removing them.
+- [x] P0-015 Mark transition and Curl APIs as stable or experimental explicitly.
+    - Evidence: `crates/engine/src/transition.rs` and `FrameTransition` rustdoc mark transition APIs/Curl as experimental; `docs/ARCHITECTURE.md` classifies Curl3D as optional backend infrastructure outside the Engine v1 critical path. Existing Curl3D WIP files were not modified.
+- [x] P0-016 Define a deprecation policy for accidental public exports before removing them.
+    - Evidence: `docs/ARCHITECTURE.md` section 17 defines additive-first compatibility, preferred replacements, deprecation duration, and deliberate removal policy.
 
 ## Documentation rebaseline
 

@@ -29,6 +29,9 @@ pub struct SpreadFrameKey {
 }
 
 /// State of transition animation between spreads.
+///
+/// `Curl` is experimental until the transition contract has a second
+/// production consumer; `None` and `Slide` are the stable frame vocabulary.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum FrameTransition {
     None,
