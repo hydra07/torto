@@ -306,6 +306,10 @@ impl ReaderSession {
         {
             return Ok(result);
         }
+        if let Some(position) = self.position_for_locator_quote(locator)? {
+            self.install_position(position);
+            return Ok(self.moved());
+        }
 
         let (requested_section, mut progression) =
             if let Some(index) = self.section_index_for_href(&locator.href) {
@@ -2168,6 +2172,51 @@ impl ReaderSession {
         }
     }
 
+    fn position_for_locator_quote(
+        &mut self,
+        locator: &LocatorV1,
+    ) -> Result<Option<ReaderPosition>, ReaderError> {
+        let Some(quote) = locator.text.as_ref() else {
+            return Ok(None);
+        };
+        if quote.highlight.is_empty() {
+            return Ok(None);
+        }
+        let Some(section_index) = self.section_index_for_href(&locator.href) else {
+            return Ok(None);
+        };
+        if self.hidden_sections.contains(&section_index) {
+            return Ok(None);
+        }
+        let segment_count = self.repository.load(section_index)?.segments.len();
+        let mut match_position = None;
+        for segment_index in 0..segment_count {
+            let key = SegmentKey {
+                section_index,
+                segment_index,
+            };
+            self.ensure_segment(key)?;
+            let Some(cached) = self.cache.get(&key) else {
+                continue;
+            };
+            for (page_index, page) in cached.pages.iter().enumerate() {
+                let matches = locator_quote_match_count(page, quote);
+                if matches == 0 {
+                    continue;
+                }
+                if matches > 1 || match_position.is_some() {
+                    return Ok(None);
+                }
+                match_position = Some(ReaderPosition {
+                    section_index,
+                    segment_index,
+                    page_index,
+                });
+            }
+        }
+        Ok(match_position)
+    }
+
     fn sync_reading_unit_to_position(&mut self) {
         if let Some(units) = &self.fixed_reading_units {
             self.current_reading_unit = units
@@ -2247,9 +2296,10 @@ impl ReaderSession {
             .fragments
             .iter()
             .position(|fragment| {
-                fragment.blocks.iter().any(|block| {
-                    block_source(block).is_some_and(|range| source_range_contains(range, anchor))
-                })
+                fragment
+                    .blocks
+                    .iter()
+                    .any(|block| block_contains_source_anchor(block, anchor))
             })
             .ok_or_else(|| ReaderError::NavigationTargetNotFound(anchor.node.clone()))?;
         let segment_index = section
@@ -2316,10 +2366,10 @@ impl ReaderSession {
             .as_ref()
             .and_then(|anchor| {
                 section.fragments.iter().position(|fragment| {
-                    fragment.blocks.iter().any(|block| {
-                        block_source(block)
-                            .is_some_and(|range| source_range_contains(range, anchor))
-                    })
+                    fragment
+                        .blocks
+                        .iter()
+                        .any(|block| block_contains_source_anchor(block, anchor))
                 })
             })
             .and_then(|fragment_index| {
@@ -2819,11 +2869,9 @@ fn fragment_section_blocks(
         };
         for piece in pieces {
             let starts_layout_segment = !current.is_empty()
-                && block_source(&piece).is_some_and(|range| {
-                    boundary_sources
-                        .iter()
-                        .any(|anchor| source_range_contains(range, anchor))
-                });
+                && boundary_sources
+                    .iter()
+                    .any(|anchor| block_contains_source_anchor(&piece, anchor));
             if starts_layout_segment {
                 flush(&mut current, &mut current_text, &mut block_groups);
             }
@@ -2864,10 +2912,10 @@ fn resolve_fragment_anchors(
         let fragment_index = fragments
             .iter()
             .position(|fragment| {
-                fragment.blocks.iter().any(|block| {
-                    block_source(block)
-                        .is_some_and(|range| source_range_contains(range, &anchor.source))
-                })
+                fragment
+                    .blocks
+                    .iter()
+                    .any(|block| block_contains_source_anchor(block, &anchor.source))
             })
             .unwrap_or(0);
         resolved_anchors.push((anchor.fragment.clone(), fragment_index));
@@ -3194,6 +3242,83 @@ fn block_source(block: &Block) -> Option<&SourceRange> {
         Block::Note(block) => block.source.as_ref(),
         Block::Separator(_) | Block::LineBreak | Block::PageBreak => None,
     }
+}
+
+fn block_contains_source_anchor(block: &Block, anchor: &SourceAnchor) -> bool {
+    if block_source(block).is_some_and(|range| source_range_contains(range, anchor)) {
+        return true;
+    }
+    match block {
+        Block::Text(_) | Block::Image(_) | Block::LineBreak | Block::PageBreak => false,
+        Block::Quote(quote) => quote
+            .body
+            .iter()
+            .chain(quote.attribution.iter())
+            .any(|text| {
+                text.source
+                    .as_ref()
+                    .is_some_and(|range| source_range_contains(range, anchor))
+            }),
+        Block::Table(table) => table.rows.iter().flat_map(|row| &row.cells).any(|cell| {
+            cell.text
+                .source
+                .as_ref()
+                .is_some_and(|range| source_range_contains(range, anchor))
+        }),
+        Block::Figure(figure) => {
+            figure.images.iter().any(|image| {
+                image
+                    .source
+                    .as_ref()
+                    .is_some_and(|range| source_range_contains(range, anchor))
+            }) || figure.captions.iter().any(|caption| {
+                caption
+                    .source
+                    .as_ref()
+                    .is_some_and(|range| source_range_contains(range, anchor))
+            })
+        }
+        Block::Note(note) => note
+            .blocks
+            .iter()
+            .any(|block| block_contains_source_anchor(block, anchor)),
+        Block::Separator(separator) => {
+            separator.text.as_ref().is_some_and(|text| {
+                text.source
+                    .as_ref()
+                    .is_some_and(|range| source_range_contains(range, anchor))
+            }) || separator.image.as_ref().is_some_and(|image| {
+                image
+                    .source
+                    .as_ref()
+                    .is_some_and(|range| source_range_contains(range, anchor))
+            })
+        }
+    }
+}
+
+fn locator_quote_match_count(page: &PageDisplayList, quote: &TextQuote) -> usize {
+    let mut count = 0;
+    for region_index in 0..page.text_region_count() {
+        let Some(text) = page.text_region_text(region_index) else {
+            continue;
+        };
+        let Some(visible) = page.text_region_visible_range(region_index) else {
+            continue;
+        };
+        for (start, _) in text.match_indices(&quote.highlight) {
+            let end = start.saturating_add(quote.highlight.len());
+            if start < visible.start || start >= visible.end {
+                continue;
+            }
+            let before_matches = quote.before.is_empty() || text[..start].ends_with(&quote.before);
+            let after_matches = quote.after.is_empty() || text[end..].starts_with(&quote.after);
+            if before_matches && after_matches {
+                count += 1;
+            }
+        }
+    }
+    count
 }
 
 fn locator_text_context(page: &PageDisplayList) -> (Option<SourceRange>, Option<TextQuote>) {

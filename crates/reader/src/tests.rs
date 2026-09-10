@@ -4,9 +4,9 @@
     use rebook_layout::{ReaderDefaultFont, ReaderTypesetting, SpreadMode};
     use rebook_publication::{
         Block, BlockStyle, FixedPageDimensions, ImageBlock, ImageStyle, Inline, Metadata,
-        NOTE_SECTION_PROPERTY, PublicationId, PublicationUrl, RasterResource, Resource, Section,
-        SectionAnchor, SourceAnchor, SourceRange, SpineItem, SpineItemId, TextBlock, TextBlockKind,
-        TextRun, TextStyle, TocEntry,
+        NOTE_SECTION_PROPERTY, PublicationId, PublicationUrl, QuoteBlock, RasterResource, Resource, Section,
+        SectionAnchor, SourceAnchor, SourceRange, SpineItem, SpineItemId, TableBlock, TableCell,
+        TableRow, TextBlock, TextBlockKind, TextRun, TextStyle, TocEntry,
     };
 
     use super::*;
@@ -962,6 +962,150 @@
 
         assert!(matches!(result, Err(ReaderError::NavigationTargetNotFound(_))));
         assert_eq!(reader.location(), initial);
+    }
+
+    #[test]
+    fn nested_source_anchors_resolve_inside_quotes_and_tables() {
+        let mut source = CountingSource::new(&["placeholder".into()]);
+        let source_mut = Arc::get_mut(&mut source).unwrap();
+        let spine = source_mut.sections[0].id.clone();
+        let source_range = |node: &str, end: u64| SourceRange {
+            start: SourceAnchor {
+                spine: spine.clone(),
+                node: node.into(),
+                text_offset: 0,
+            },
+            end: SourceAnchor {
+                spine: spine.clone(),
+                node: node.into(),
+                text_offset: end,
+            },
+        };
+        let text_block = |node: &str, text: &str| TextBlock {
+            kind: TextBlockKind::Paragraph,
+            content: vec![Inline::Text(TextRun {
+                text: text.into(),
+                style: TextStyle::default(),
+                link: None,
+            })],
+            style: BlockStyle::default(),
+            source: Some(source_range(node, text.chars().count() as u64)),
+        };
+        source_mut.sections[0].blocks = vec![
+            Block::Quote(QuoteBlock {
+                body: vec![text_block("quote-body", "Nested quote text")],
+                attribution: None,
+                source: Some(source_range("quote", 17)),
+            }),
+            Block::Table(TableBlock {
+                rows: vec![TableRow {
+                    cells: vec![TableCell {
+                        text: text_block("table-cell", "Nested table text"),
+                        authored_alignment: None,
+                        column_span: 1,
+                        row_span: 1,
+                        header: false,
+                    }],
+                }],
+                source: Some(source_range("table", 18)),
+            }),
+        ];
+
+        let mut reader =
+            ReaderSession::open(source, viewport(600, 400), ReaderStyle::default()).unwrap();
+        let quote_anchor = SourceAnchor {
+            spine: spine.clone(),
+            node: "quote-body".into(),
+            text_offset: 3,
+        };
+        reader.go_to_source(&quote_anchor).unwrap();
+        assert!(reader.current_page().contains_source_anchor(&quote_anchor));
+
+        let table_anchor = SourceAnchor {
+            spine,
+            node: "table-cell".into(),
+            text_offset: 4,
+        };
+        reader.go_to_source(&table_anchor).unwrap();
+        assert!(reader.current_page().contains_source_anchor(&table_anchor));
+    }
+
+    #[test]
+    fn locator_quote_recovers_after_source_node_changes() {
+        let original_text = format!(
+            "唯一 locator recovery phrase。{}",
+            "多字节文本 ".repeat(500)
+        );
+        let original = CountingSource::new(std::slice::from_ref(&original_text));
+        let first =
+            ReaderSession::open(original, viewport(320, 180), ReaderStyle::default()).unwrap();
+        let locator = first.current_locator();
+        assert!(locator.text.is_some());
+
+        let replacement_text = format!("{}{}", "前缀文本 ".repeat(300), original_text);
+        let mut replacement = CountingSource::new(&[replacement_text]);
+        let replacement_mut = Arc::get_mut(&mut replacement).unwrap();
+        let Block::Text(text) = &mut replacement_mut.sections[0].blocks[0] else {
+            unreachable!();
+        };
+        let source = text.source.as_mut().unwrap();
+        source.start.node = "new-paragraph".into();
+        source.end.node = "new-paragraph".into();
+
+        let mut restored =
+            ReaderSession::open(replacement, viewport(320, 180), ReaderStyle::default()).unwrap();
+        restored.restore_locator(&locator).unwrap();
+
+        assert!(restored.location().segment_index > 0 || restored.location().page_index > 0);
+        assert_eq!(
+            restored
+                .current_locator()
+                .source
+                .as_ref()
+                .unwrap()
+                .start
+                .node,
+            "new-paragraph"
+        );
+    }
+
+    #[test]
+    fn ambiguous_locator_quote_falls_back_without_picking_a_match() {
+        let source = CountingSource::new(&["ambiguous ".repeat(500)]);
+        let spine = SpineItemId::new("section-0").unwrap();
+        let locator = LocatorV1 {
+            version: LocatorV1::VERSION,
+            publication_id: source.book.id.clone(),
+            href: source.book.sections[0].href.clone(),
+            progression: Some(1.0),
+            total_progression: Some(1.0),
+            position: None,
+            source: Some(SourceRange {
+                start: SourceAnchor {
+                    spine: spine.clone(),
+                    node: "missing-node".into(),
+                    text_offset: 0,
+                },
+                end: SourceAnchor {
+                    spine,
+                    node: "missing-node".into(),
+                    text_offset: 1,
+                },
+            }),
+            partial_cfi: None,
+            text: Some(rebook_publication::TextQuote {
+                before: String::new(),
+                highlight: "ambiguous".into(),
+                after: String::new(),
+            }),
+        };
+        let mut reader =
+            ReaderSession::open(source, viewport(320, 180), ReaderStyle::default()).unwrap();
+
+        reader.restore_locator(&locator).unwrap();
+
+        let location = reader.location();
+        assert_eq!(location.page_index, location.page_count.saturating_sub(1));
     }
 
     #[test]
