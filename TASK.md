@@ -393,17 +393,26 @@ These items describe code that existed when this roadmap was created. They are n
 
 ## Prepared frame audit
 
-- [ ] P4-001 Audit `PreparedReaderFrame` for backend-specific assumptions.
-- [ ] P4-002 Audit frame cloning for large retained structures or pixel buffers.
-- [ ] P4-003 Verify frame keys and revisions uniquely identify layout/content/overlay changes.
-- [ ] P4-004 Define which changes require page rebuild, scene rebuild, overlay rebuild, transform update, or no redraw.
-- [ ] P4-005 Verify destination frame lifetime remains valid through commit/cancel.
+- [x] P4-001 Audit `PreparedReaderFrame` for backend-specific assumptions.
+    - Evidence: `docs/ENGINE_V1_API.md` records that prepared frames contain reader/layout DTOs only and no window, surface, GPU, texture, database, or product types.
+- [x] P4-002 Audit frame cloning for large retained structures or pixel buffers.
+    - Evidence: frame DTO cloning is shallow over the retained reader spread structures; the frame contract forbids backends from retaining borrowed references beyond the frame lifetime.
+- [x] P4-003 Verify frame keys and revisions uniquely identify layout/content/overlay changes.
+    - Evidence: `PageFrameKey`, `SpreadFrameKey`, `layout_generation`, `content_revision`, and `overlay_revision` roles are documented in `docs/ENGINE_V1_API.md`.
+- [x] P4-004 Define which changes require page rebuild, scene rebuild, overlay rebuild, transform update, or no redraw.
+    - Evidence: the prepared-frame invariants and `docs/ENGINE_RUNTIME_API.md` invalidation matrix separate page, scene, overlay, transform, and no-reflow changes.
+- [x] P4-005 Verify destination frame lifetime remains valid through commit/cancel.
+    - Evidence: prepared frames own current/destination spread DTOs; engine transition tests cover destination availability and cancellation without changing committed state.
+    - Validation: `cargo test -p rebook-engine --locked` — 15 passed.
 
 ## Vello backend boundaries
 
-- [ ] P4-006 Verify `rebook-vello-backend` does not own reader semantics.
-- [ ] P4-007 Verify `rebook-renderer` remains free of Vello/wgpu types.
-- [ ] P4-008 Separate static page content from dynamic overlays and transitions.
+- [x] P4-006 Verify `rebook-vello-backend` does not own reader semantics.
+    - Evidence: `rebook-vello-backend` consumes `PreparedReaderFrame`/spread data and owns scene/cache composition; reader navigation and locator state remain in core crates.
+- [x] P4-007 Verify `rebook-renderer` remains free of Vello/wgpu types.
+    - Evidence: renderer uses backend-neutral `PaintScene`/retained display-list types; architecture dependency audit records no Vello/wgpu dependency.
+- [x] P4-008 Separate static page content from dynamic overlays and transitions.
+    - Evidence: prepared frame overlays/revisions and backend scene-layer APIs separate retained page content, source overlays, and transition transforms.
 - [ ] P4-009 Audit scene cache invalidation for resize, style, spread, source, overlay, and transition changes.
 - [ ] P4-010 Audit image and PDF raster identity across scenes and uploads.
 - [ ] P4-011 Verify current and destination scenes are pinned during transitions.

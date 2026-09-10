@@ -10,16 +10,16 @@ New adapters should use `EngineRuntime` and should not implement a second reader
 
 ## Operation groups
 
-| Group | Primary operations | Owner |
-| --- | --- | --- |
-| Open | `EngineRuntime::open_bytes`, `EngineRuntime::open` | Engine parses and initializes the first reader; platform supplies bytes/configuration. |
-| Inspect | `is_open`, `viewport`, `toc`, `snapshot`, `locator`, `reader` DTO queries | Engine returns publication and reading state; platform presents it. |
-| Configure | `resize`, `set_style`, `set_highlights`, `set_focus` | Engine invalidates the required layout/cache state; platform owns settings persistence. |
-| Command | `navigate`, `go_to_toc_item`, `go_to_href`, `go_to_source`, `restore_locator`, selection commands | Engine resolves semantic commands and returns typed outcomes. |
-| Work | `tick`, `animation_step` | Platform scheduler grants time; engine advances bounded cooperative work and transitions. |
-| Frame | `frame` | Engine returns backend-neutral prepared frame data; backend/platform paints it. |
-| Lifecycle | `lifecycle`, `memory_pressure` | Platform translates events; engine cancels transient work and returns a `PlatformDirective`. |
-| Close | `close` | Engine drops reader-owned work/resources; platform drops surfaces and product state. |
+| Group     | Primary operations                                                                                | Owner                                                                                        |
+| --------- | ------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| Open      | `EngineRuntime::open_bytes`, `EngineRuntime::open`                                                | Engine parses and initializes the first reader; platform supplies bytes/configuration.       |
+| Inspect   | `is_open`, `viewport`, `toc`, `snapshot`, `locator`, `reader` DTO queries                         | Engine returns publication and reading state; platform presents it.                          |
+| Configure | `resize`, `set_style`, `set_highlights`, `set_focus`                                              | Engine invalidates the required layout/cache state; platform owns settings persistence.      |
+| Command   | `navigate`, `go_to_toc_item`, `go_to_href`, `go_to_source`, `restore_locator`, selection commands | Engine resolves semantic commands and returns typed outcomes.                                |
+| Work      | `tick`, `animation_step`                                                                          | Platform scheduler grants time; engine advances bounded cooperative work and transitions.    |
+| Frame     | `frame`                                                                                           | Engine returns backend-neutral prepared frame data; backend/platform paints it.              |
+| Lifecycle | `lifecycle`, `memory_pressure`                                                                    | Platform translates events; engine cancels transient work and returns a `PlatformDirective`. |
+| Close     | `close`                                                                                           | Engine drops reader-owned work/resources; platform drops surfaces and product state.         |
 
 ## Use cases
 
@@ -67,6 +67,15 @@ backend requests another frame while requires_next_frame is true
 ```
 
 `PreparedReaderFrame` is backend-neutral. It does not contain a window, surface, GPU device, texture handle, database entity, or product annotation.
+
+## Prepared frame invariants
+
+- `PageFrameKey` identifies a reader position within a layout generation; `SpreadFrameKey` adds the logical frame dimensions and optional secondary page.
+- `content_revision` changes when content/layout state requires page content rebuilding; `overlay_revision` changes when source-backed overlay presentation changes without repagination.
+- `transition_kind` and `FrameTransition` describe visual state only. They cannot change the committed `ReaderSession` position; commit remains a reader navigation operation.
+- Current and destination spreads are owned by the prepared frame through the reader spread DTOs and remain available for the lifetime of that frame. A backend must not retain references after discarding the frame unless it retains an explicit owned clone/`Arc`-backed page structure.
+- Static page content, dynamic source overlays, and transform-only transition state have separate invalidation responsibilities. The backend may rebuild scene layers or transforms, but it must not perform parsing, pagination, locator recovery, or navigation commits.
+- The Vello backend consumes the prepared frame but is optional. `rebook-renderer` and `rebook-engine` remain free of Vello/wgpu types.
 
 ### Select source-backed content
 
