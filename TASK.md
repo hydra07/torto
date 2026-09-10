@@ -185,7 +185,8 @@ These items describe code that existed when this roadmap was created. They are n
     - Evidence: `rebook-layout` now validates image dimensions before decode and bounds both decoded raster bytes and source bytes at 32M pixels/128MiB; source-provided rasters receive the same guard.
     - Validation: `cargo test -p rebook-layout --locked` — 102 passed.
 - [~] P1-029 Audit PDF and comic page dimension arithmetic for overflow.
-    - Partial evidence: PDF page raster sizing clamps dimensions and render scale before pixmap creation; CBZ bounds archive/resource bytes, and layout now rejects oversized decoded dimensions. Dedicated PDF/CBZ adversarial dimension fixtures remain open.
+    - Partial evidence: PDF now rejects non-finite/non-positive page dimensions before scale arithmetic and clamps raster output; CBZ bounds archive/resource bytes, and layout rejects oversized decoded dimensions. Dedicated PDF/CBZ adversarial dimension fixtures remain open.
+    - Validation: `cargo test -p rebook-formats --locked` — 39 passed, 1 ignored.
 - [ ] P1-030 Add malformed/adversarial fixtures that are safe to commit.
 - [ ] P1-031 Add fuzz/property targets for the highest-risk parser and URL/anchor boundaries.
 - [x] P1-032 Reject stale source anchors instead of silently restoring to section/page zero.

@@ -213,6 +213,20 @@ impl BookSource for PdfPublication {
     }
 }
 
+fn checked_page_dimensions(
+    page_index: usize,
+    dimensions: (f32, f32),
+) -> Result<(f32, f32), PublicationError> {
+    let (width, height) = dimensions;
+    if !width.is_finite() || !height.is_finite() || width <= 0.0 || height <= 0.0 {
+        return Err(PublicationError::ResourceLimit(format!(
+            "PDF page {} has invalid dimensions: {width}x{height}",
+            page_index + 1
+        )));
+    }
+    Ok((width, height))
+}
+
 impl PdfPublication {
     #[allow(
         clippy::cast_possible_truncation,
@@ -226,11 +240,11 @@ impl PdfPublication {
         let page = self.pdf.pages().get(page_index).ok_or_else(|| {
             PublicationError::ResourceNotFound(format!("PDF page {}", page_index + 1))
         })?;
-        let (width, height) = page.render_dimensions();
-        let scale = (PAGE_MAX_DIMENSION / width.max(height).max(1.0)).min(MAX_RENDER_SCALE);
+        let (width, height) = checked_page_dimensions(page_index, page.render_dimensions())?;
+        let scale = (PAGE_MAX_DIMENSION / width.max(height)).min(MAX_RENDER_SCALE);
         Ok(FixedPageDimensions {
-            width: u32::from((width * scale).floor() as u16),
-            height: u32::from((height * scale).floor() as u16),
+            width: u32::from((width * scale).floor().max(1.0) as u16),
+            height: u32::from((height * scale).floor().max(1.0) as u16),
         })
     }
 
@@ -250,7 +264,7 @@ impl PdfPublication {
         let page = self.pdf.pages().get(page_index).ok_or_else(|| {
             PublicationError::ResourceNotFound(format!("PDF page {}", page_index + 1))
         })?;
-        let (width, height) = page.render_dimensions();
+        let (width, height) = checked_page_dimensions(page_index, page.render_dimensions())?;
         let cache = InterpreterCache::new();
         let mut context = Context::new(
             page.initial_transform(true).to_kurbo(),
@@ -347,8 +361,8 @@ impl PdfPublication {
         let page = self.pdf.pages().get(page_index).ok_or_else(|| {
             PublicationError::ResourceNotFound(format!("PDF page {}", page_index + 1))
         })?;
-        let (width, height) = page.render_dimensions();
-        let scale = (max_dimension / width.max(height).max(1.0)).min(MAX_RENDER_SCALE);
+        let (width, height) = checked_page_dimensions(page_index, page.render_dimensions())?;
+        let scale = (max_dimension / width.max(height)).min(MAX_RENDER_SCALE);
         let cache = RenderCache::new();
         let interpreter_settings = interpreter_settings();
         Ok(hayro::render(
