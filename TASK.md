@@ -178,7 +178,9 @@ These items describe code that existed when this roadmap was created. They are n
 - [x] P1-026 Audit archive entry count, decompression ratio, total expanded size, and path traversal limits.
     - Evidence: EPUB and CHM already enforce archive/entry/expanded-size budgets and path validation; CBZ now enforces archive bytes, entry count, per-entry bytes, total expanded bytes, and compression-ratio limits. CBZ materializes generated resource paths rather than extracting archive names.
     - Validation: `cargo test -p rebook-formats --locked` — 39 passed, 1 ignored.
-- [ ] P1-027 Audit XML/HTML recursion, entity, and allocation limits.
+- [~] P1-027 Audit XML/HTML recursion, entity, and allocation limits.
+    - Partial evidence: EPUB XML sanitization enforces 128-level depth and rejects unsafe internal subsets; `rebook-html` now rejects sections over 64 MiB, over 1,000,000 DOM nodes, or over 256 ancestor levels. Direct HTML entity policy and format-wide allocation coverage remain open.
+    - Validation: `cargo test -p rebook-html --locked` — 61 passed.
 - [ ] P1-028 Audit image dimension and decoded-byte limits before allocation.
 - [ ] P1-029 Audit PDF and comic page dimension arithmetic for overflow.
 - [ ] P1-030 Add malformed/adversarial fixtures that are safe to commit.

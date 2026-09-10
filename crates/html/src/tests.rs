@@ -2445,6 +2445,54 @@
         );
     }
 
+    #[test]
+    fn rejects_documents_larger_than_the_parser_budget() {
+        let descriptor = SpineItem {
+            id: SpineItemId::new("chapter").unwrap(),
+            href: PublicationUrl::parse("OPS/chapter.xhtml").unwrap(),
+            media_type: "application/xhtml+xml".into(),
+            linear: true,
+            properties: Vec::new(),
+        };
+        let xml = "x".repeat(64 * 1024 * 1024 + 1);
+
+        let error = parse_section(&xml, &descriptor, |_| None).unwrap_err();
+
+        assert!(matches!(
+            error,
+            HtmlError::InvalidDocument { message, .. }
+                if message.contains("byte limit")
+        ));
+    }
+
+    #[test]
+    fn rejects_documents_with_excessive_dom_depth() {
+        let descriptor = SpineItem {
+            id: SpineItemId::new("chapter").unwrap(),
+            href: PublicationUrl::parse("OPS/chapter.xhtml").unwrap(),
+            media_type: "application/xhtml+xml".into(),
+            linear: true,
+            properties: Vec::new(),
+        };
+        let mut xml = "<html xmlns=\"http://www.w3.org/1999/xhtml\"><body>".to_owned();
+        for _ in 0..300 {
+            xml.push_str("<div>");
+        }
+        xml.push_str("deep");
+        for _ in 0..300 {
+            xml.push_str("</div>");
+        }
+        xml.push_str("</body></html>");
+
+        let error = parse_section(&xml, &descriptor, |_| None).unwrap_err();
+
+        assert!(matches!(
+            error,
+            HtmlError::InvalidDocument { message, .. }
+                if message.contains("depth limit")
+        ));
+    }
+
     fn assert_close(actual: f32, expected: f32) {
         assert!((actual - expected).abs() < 0.001, "{actual} != {expected}");
     }

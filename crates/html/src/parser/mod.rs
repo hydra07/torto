@@ -201,6 +201,10 @@ pub fn parse_section_with_image_classifier(
 }
 
 /// Parses one HTML section with publication-level semantic hints and image classification.
+const MAX_DOCUMENT_BYTES: usize = 64 * 1024 * 1024;
+const MAX_DOCUMENT_NODES: usize = 1_000_000;
+const MAX_DOCUMENT_DEPTH: usize = 256;
+
 pub fn parse_section_with_hints_and_image_classifier(
     xml: &str,
     descriptor: &SpineItem,
@@ -208,10 +212,34 @@ pub fn parse_section_with_hints_and_image_classifier(
     mut is_decorative_separator_image: impl FnMut(&PublicationUrl) -> bool,
     hints: SectionParseHints,
 ) -> Result<Section, HtmlError> {
+    if xml.len() > MAX_DOCUMENT_BYTES {
+        return Err(HtmlError::InvalidDocument {
+            resource: descriptor.href.to_string(),
+            message: format!("document exceeds the {MAX_DOCUMENT_BYTES} byte limit"),
+        });
+    }
     let document = Document::parse(xml).map_err(|error| HtmlError::InvalidDocument {
         resource: descriptor.href.to_string(),
         message: error.to_string(),
     })?;
+    let mut node_count = 0_usize;
+    let mut max_depth = 0_usize;
+    for node in document.descendants() {
+        node_count = node_count.saturating_add(1);
+        max_depth = max_depth.max(node.ancestors().count());
+    }
+    if node_count > MAX_DOCUMENT_NODES {
+        return Err(HtmlError::InvalidDocument {
+            resource: descriptor.href.to_string(),
+            message: format!("document exceeds the {MAX_DOCUMENT_NODES} node limit"),
+        });
+    }
+    if max_depth > MAX_DOCUMENT_DEPTH {
+        return Err(HtmlError::InvalidDocument {
+            resource: descriptor.href.to_string(),
+            message: format!("document exceeds the {MAX_DOCUMENT_DEPTH} level depth limit"),
+        });
+    }
     let styles = StyleSheet::from_document(&document, &descriptor.href, &mut load_stylesheet);
     let root = document
         .descendants()
