@@ -1342,6 +1342,35 @@ mod tests {
     }
 
     #[test]
+    fn publication_url_boundary_matrix_preserves_canonical_invariants() {
+        let base = PublicationUrl::parse("OPS/Text/chapter.xhtml").expect("valid base URL");
+        let references = [
+            "chapter.xhtml",
+            "../Images/cover%20image.jpg#hero",
+            "./nested/./chapter.xhtml",
+            "#section-1",
+            "",
+            "%2e%2e/secret",
+            "%2Fabsolute",
+            "a\\b",
+            "a%00b",
+            "https://example.com/book.css",
+            "chapter%ZZ.xhtml",
+        ];
+
+        for reference in references {
+            if let Ok(url) = base.resolve(reference) {
+                assert!(!url.path().is_empty());
+                assert!(!url.path().starts_with('/'));
+                assert!(!url.path().contains('\\'));
+                assert!(!url.path().contains('\0'));
+                let round_trip = PublicationUrl::parse(&url.to_string()).expect("canonical URL");
+                assert_eq!(round_trip, url, "round-trip changed {reference:?}");
+            }
+        }
+    }
+
+    #[test]
     fn rejects_external_urls_in_resource_api() {
         let error = PublicationUrl::parse("https://example.com/book.css")
             .expect_err("external URL must be rejected");

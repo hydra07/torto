@@ -2493,6 +2493,42 @@
         ));
     }
 
+    #[test]
+    fn rejects_undeclared_html_entities() {
+        let descriptor = SpineItem {
+            id: SpineItemId::new("chapter").unwrap(),
+            href: PublicationUrl::parse("OPS/chapter.xhtml").unwrap(),
+            media_type: "application/xhtml+xml".into(),
+            linear: true,
+            properties: Vec::new(),
+        };
+        let xml = r#"<html xmlns="http://www.w3.org/1999/xhtml"><body><p>One&nbsp;two</p></body></html>"#;
+
+        let error = parse_section(xml, &descriptor, |_| None).unwrap_err();
+
+        assert!(matches!(error, HtmlError::InvalidDocument { .. }));
+    }
+
+    #[test]
+    fn decodes_predefined_and_numeric_xml_entities() {
+        let descriptor = SpineItem {
+            id: SpineItemId::new("chapter").unwrap(),
+            href: PublicationUrl::parse("OPS/chapter.xhtml").unwrap(),
+            media_type: "application/xhtml+xml".into(),
+            linear: true,
+            properties: Vec::new(),
+        };
+        let xml = r#"<html xmlns="http://www.w3.org/1999/xhtml"><body><p>A &amp; B &lt; C &#160; D</p></body></html>"#;
+
+        let section = parse_section(xml, &descriptor, |_| None).unwrap();
+        let text = all_text_blocks(&section)
+            .into_iter()
+            .map(text_block_text)
+            .collect::<String>();
+
+        assert!(text.contains("A & B < C"));
+        assert!(text.contains('\u{00a0}'));
+    }
     fn assert_close(actual: f32, expected: f32) {
         assert!((actual - expected).abs() < 0.001, "{actual} != {expected}");
     }

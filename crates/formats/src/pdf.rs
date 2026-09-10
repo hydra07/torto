@@ -731,6 +731,22 @@ mod tests {
     use super::*;
 
     #[test]
+    fn rejects_non_positive_and_non_finite_page_dimensions() {
+        for dimensions in [(0.0, 100.0), (-1.0, 100.0), (100.0, 0.0), (100.0, -1.0)] {
+            assert!(matches!(
+                checked_page_dimensions(0, dimensions),
+                Err(PublicationError::ResourceLimit(_))
+            ));
+        }
+        for dimensions in [(f32::NAN, 100.0), (100.0, f32::NAN), (f32::INFINITY, 100.0)] {
+            assert!(matches!(
+                checked_page_dimensions(0, dimensions),
+                Err(PublicationError::ResourceLimit(_))
+            ));
+        }
+    }
+
+    #[test]
     fn opens_and_renders_a_pdf_as_lazy_fixed_pages() {
         let bytes = minimal_pdf();
         let publication = open(bytes, "fallback.pdf").unwrap();
