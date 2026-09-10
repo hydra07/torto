@@ -156,17 +156,18 @@ These items describe code that existed when this roadmap was created. They are n
     - Evidence: `docs/ARCHITECTURE.md` defines exact source, structural, unique quote, href progression, total progression, and failure order.
 - [x] P1-017 Populate `LocatorV1::text` for current reading locators with bounded before/highlight/after context.
     - Evidence: `ReaderSession::current_locator` now derives a quote from the first visible source-backed text region in `crates/reader/src/session.rs`; bounds are 64/128/64 Unicode scalars in `crates/reader/src/model.rs`.
-    - Validation: `cargo test -p rebook-reader --locked` — 60 passed; `cargo check -p rebook-engine --locked` — passed.
+    - Validation: `cargo test -p rebook-reader --locked` — 62 passed; `cargo check -p rebook-engine --locked` — passed.
 - [x] P1-018 Evaluate whether a structural locator such as partial CFI can be produced reliably; implement or explicitly defer with evidence.
     - Evidence: parser node IDs are synthetic and no CFI producer/validator exists; `LocatorV1::partial_cfi` remains storage-only and CFI generation is explicitly deferred in `docs/ARCHITECTURE.md`.
 - [x] P1-019 Implement bounded text-quote recovery scoped to the locator href.
     - Evidence: `ReaderSession::restore_locator` searches source-backed text regions across the href's prepared segments, accepts one visible match, and falls back when the quote is absent or ambiguous.
-    - Validation: `locator_quote_recovers_after_source_node_changes` covers Unicode text and page-spanning quotes; `cargo test -p rebook-reader --locked` — 60 passed.
+    - Validation: `locator_quote_recovers_after_source_node_changes` covers Unicode text and page-spanning quotes; `cargo test -p rebook-reader --locked` — 62 passed.
 - [ ] P1-020 Return a structured recovery quality: exact, structural, quote match, href fallback, total fallback, or failure.
 - [ ] P1-021 Add locator schema/version migration tests.
 - [x] P1-022 Add tests for parser-node identity changes while text remains equivalent.
     - Evidence: `locator_quote_recovers_after_source_node_changes` changes the source node identity while preserving the text and verifies recovery at the relocated content.
-- [ ] P1-023 Add tests for missing href and moved section fallback.
+- [x] P1-023 Add tests for missing href and moved section fallback.
+    - Evidence: `locator_falls_back_to_total_progression_when_href_moves` verifies a changed href uses total progression; `locator_rejects_unknown_href_without_a_fallback` verifies typed failure.
 - [x] P1-024 Add tests ensuring ambiguous text quotes do not silently choose unrelated content.
     - Evidence: `ambiguous_locator_quote_falls_back_without_picking_a_match` verifies repeated quote matches are rejected before href/progression fallback.
 - [~] P1-025 Add tests for locator round-trip across viewport, font, margin, spacing, and spread changes.
@@ -182,7 +183,7 @@ These items describe code that existed when this roadmap was created. They are n
 - [ ] P1-031 Add fuzz/property targets for the highest-risk parser and URL/anchor boundaries.
 - [x] P1-032 Reject stale source anchors instead of silently restoring to section/page zero.
     - Evidence: `ReaderSession::position_for_source_anchor` now returns `NavigationTargetNotFound` when no source fragment, segment, or page contains the anchor; `stale_source_anchor_is_rejected_without_moving_reader` covers state preservation.
-    - Validation: `cargo test -p rebook-reader --locked` — 60 passed; `cargo test -p rebook-engine --locked` — 14 passed.
+    - Validation: `cargo test -p rebook-reader --locked` — 62 passed; `cargo test -p rebook-engine --locked` — 14 passed.
 
 ## Phase gate
 

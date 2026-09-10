@@ -1109,6 +1109,54 @@
     }
 
     #[test]
+    fn locator_falls_back_to_total_progression_when_href_moves() {
+        let source = CountingSource::new(&["first section".repeat(100), "second section".repeat(100)]);
+        let locator = LocatorV1 {
+            version: LocatorV1::VERSION,
+            publication_id: source.book.id.clone(),
+            href: PublicationUrl::parse("moved-section.xhtml").unwrap(),
+            progression: Some(0.0),
+            total_progression: Some(0.75),
+            position: None,
+            source: None,
+            partial_cfi: None,
+            text: None,
+        };
+        let mut reader =
+            ReaderSession::open(source, viewport(600, 400), ReaderStyle::default()).unwrap();
+
+        reader.restore_locator(&locator).unwrap();
+
+        assert_eq!(reader.location().section_index, 1);
+    }
+
+    #[test]
+    fn locator_rejects_unknown_href_without_a_fallback() {
+        let source = CountingSource::new(&["only section".repeat(100)]);
+        let locator = LocatorV1 {
+            version: LocatorV1::VERSION,
+            publication_id: source.book.id.clone(),
+            href: PublicationUrl::parse("missing-section.xhtml").unwrap(),
+            progression: None,
+            total_progression: None,
+            position: None,
+            source: None,
+            partial_cfi: None,
+            text: None,
+        };
+        let mut reader =
+            ReaderSession::open(source, viewport(600, 400), ReaderStyle::default()).unwrap();
+
+        let result = reader.restore_locator(&locator);
+
+        assert!(matches!(
+            result,
+            Err(ReaderError::NavigationTargetNotFound(target))
+                if target == "missing-section.xhtml"
+        ));
+    }
+
+    #[test]
     fn durable_locator_restores_after_viewport_repagination() {
         let source = CountingSource::new(&["durable locator ".repeat(1_200)]);
         let mut first =
