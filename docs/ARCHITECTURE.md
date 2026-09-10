@@ -118,6 +118,29 @@ Concrete gaps, without redesigning it:
 - Fixed-page extracted text has geometric spans but not font/style, semantic block hierarchy, or reliable logical structure beyond extractor order.
 - The `Book` model has limited bibliographic metadata and no explicit landmark/page-list model beyond TOC origin/properties.
 
+### Reading IR capability audit
+
+The current capability boundary is intentionally narrower than a complete HTML accessibility tree:
+
+- Ruby annotations are not modeled. A `<ruby>` subtree may retain readable descendant text through generic inline parsing, but base text, annotation text, and their pronunciation relationship are not preserved as separate semantic data.
+- Vertical writing is not modeled. `writing-mode`, `text-orientation`, and related direction-sensitive layout semantics are not represented in `TextStyle`, `BlockStyle`, or `ReaderStyle`; `WritingSystem` only supplies a coarse script hint.
+- Accessibility preservation is partial and source-driven: image `alt` text, presentational image roles, authored language hints, hidden navigation, and selected ARIA/navigation roles are preserved or used during parsing. A complete ARIA tree, landmark model, label relationship graph, and platform accessibility bridge remain outside the engine IR.
+- Malformed markup errors retain the publication resource and parser message through `HtmlError::InvalidDocument`. They do not currently expose a stable error code, source byte range, or structured recovery diagnostics.
+
+These limitations are explicit Engine v1 constraints, not reasons to add a UI or accessibility-platform dependency to the core. Ruby, vertical writing, richer accessibility metadata, and structured diagnostics should be added only with an IR contract and representative format fixtures.
+
+### Derived publication and OCR ingestion contract
+
+OCR, translation, and other derived-content providers belong to platforms. A platform may supply a derived publication to the engine through the same immutable `BookSource` boundary as an imported format, with:
+
+1. a stable `PublicationId` for the derived snapshot;
+2. canonical section hrefs and spine IDs;
+3. normalized `Book`, `Section`, `Block`, and `Inline` values in source order;
+4. stable source anchors/ranges when provenance is available, or an explicit derived-source identity when it is not;
+5. resources resolved through the normal publication resource API.
+
+The engine must not know the OCR provider, request lifecycle, confidence database, network protocol, credentials, or persistence format. Platforms may keep confidence, page-image provenance, model metadata, and refresh history beside the derived publication and pass only the normalized publication/reader contract into the engine.
+
 Current mapping is: source element → `ReadingIrParser::source_range` → `TextBlock`/image/table/quote ranges → `TextPlacement.source` and retained text → `ShapedTextRegion` → `PageTextHit`/`PageSelectionFragment` → `ReaderTextHit`/`ReaderSelectionRect`. `PageDisplayList::{text_region_source_range,text_region_byte_range_for_source,source_rects}` provides both directions between retained text/page geometry and durable ranges. The chain supports page → shaped cluster/text → source range → parser node/spine, but block/section/chapter context must still be resolved by scanning IR and TOC rather than returned as one deep-context object.
 
 ### Locator recovery contract

@@ -144,11 +144,17 @@ These items describe code that existed when this roadmap was created. They are n
 ## Reading IR audit
 
 - [ ] P1-010 Build a coverage matrix for paragraphs, headings, nested lists, quotes, code, tables, images, SVG, math, links, and language metadata.
-- [ ] P1-011 Audit ruby annotation support and document current limitations.
-- [ ] P1-012 Audit vertical-writing support and document current limitations.
-- [ ] P1-013 Audit accessibility metadata preserved by parsers, including alt text, roles, labels, and reading order.
-- [ ] P1-014 Audit malformed markup recovery and ensure diagnostics retain useful context.
-- [ ] P1-015 Define a normalized ingestion contract for platform-supplied derived publications such as OCR output without adding provider logic to engine.
+- [x] P1-011 Audit ruby annotation support and document current limitations.
+    - Evidence: `docs/ARCHITECTURE.md` records that ruby is not modeled as separate base/annotation semantics; generic descendant text may remain readable without pronunciation provenance.
+- [x] P1-012 Audit vertical-writing support and document current limitations.
+    - Evidence: `docs/ARCHITECTURE.md` records that `writing-mode` and `text-orientation` are not represented; `WritingSystem` remains a coarse script hint only.
+- [x] P1-013 Audit accessibility metadata preserved by parsers, including alt text, roles, labels, and reading order.
+    - Evidence: `rebook-html` preserves image `alt`, presentational roles, authored language hints, hidden navigation, and selected navigation roles; `docs/ARCHITECTURE.md` records the missing full ARIA tree, landmark model, and label relationships.
+- [x] P1-014 Audit malformed markup recovery and ensure diagnostics retain useful context.
+    - Evidence: `HtmlError::InvalidDocument` retains the publication resource and parser message; `malformed_markup_keeps_resource_context_in_diagnostics` locks this behavior.
+    - Validation: `cargo test -p rebook-html --locked` — 64 passed.
+- [x] P1-015 Define a normalized ingestion contract for platform-supplied derived publications such as OCR output without adding provider logic to engine.
+    - Evidence: `docs/ARCHITECTURE.md` defines a normalized `BookSource`/publication contract for derived snapshots and keeps OCR providers, confidence, networking, credentials, and persistence outside the engine.
 
 ## Locator durability
 

@@ -2529,6 +2529,28 @@
         assert!(text.contains("A & B < C"));
         assert!(text.contains('\u{00a0}'));
     }
+    #[test]
+    fn malformed_markup_keeps_resource_context_in_diagnostics() {
+        let descriptor = SpineItem {
+            id: SpineItemId::new("chapter").unwrap(),
+            href: PublicationUrl::parse("OPS/broken.xhtml").unwrap(),
+            media_type: "application/xhtml+xml".into(),
+            linear: true,
+            properties: Vec::new(),
+        };
+        let error = parse_section(
+            "<html xmlns=\"http://www.w3.org/1999/xhtml\"><body><p>broken",
+            &descriptor,
+            |_| None,
+        )
+        .expect_err("malformed markup must produce a diagnostic");
+
+        assert!(matches!(
+            error,
+            HtmlError::InvalidDocument { resource, message }
+                if resource == "OPS/broken.xhtml" && !message.is_empty()
+        ));
+    }
     fn assert_close(actual: f32, expected: f32) {
         assert!((actual - expected).abs() < 0.001, "{actual} != {expected}");
     }
