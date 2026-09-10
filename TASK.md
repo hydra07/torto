@@ -174,6 +174,9 @@ These items describe code that existed when this roadmap was created. They are n
 - [ ] P1-029 Audit PDF and comic page dimension arithmetic for overflow.
 - [ ] P1-030 Add malformed/adversarial fixtures that are safe to commit.
 - [ ] P1-031 Add fuzz/property targets for the highest-risk parser and URL/anchor boundaries.
+- [x] P1-032 Reject stale source anchors instead of silently restoring to section/page zero.
+    - Evidence: `ReaderSession::position_for_source_anchor` now returns `NavigationTargetNotFound` when no source fragment, segment, or page contains the anchor; `stale_source_anchor_is_rejected_without_moving_reader` covers state preservation.
+    - Validation: `cargo test -p rebook-reader --locked` — 57 passed; `cargo test -p rebook-engine --locked` — 14 passed.
 
 ## Phase gate
 

@@ -949,6 +949,22 @@
     }
 
     #[test]
+    fn stale_source_anchor_is_rejected_without_moving_reader() {
+        let source = CountingSource::new(&["stale anchor ".repeat(200)]);
+        let mut reader =
+            ReaderSession::open(source, viewport(600, 400), ReaderStyle::default()).unwrap();
+        let initial = reader.location();
+        let result = reader.go_to_source(&SourceAnchor {
+            spine: SpineItemId::new("section-0").unwrap(),
+            node: "missing-node".into(),
+            text_offset: 0,
+        });
+
+        assert!(matches!(result, Err(ReaderError::NavigationTargetNotFound(_))));
+        assert_eq!(reader.location(), initial);
+    }
+
+    #[test]
     fn durable_locator_restores_after_viewport_repagination() {
         let source = CountingSource::new(&["durable locator ".repeat(1_200)]);
         let mut first =

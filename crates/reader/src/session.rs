@@ -2251,12 +2251,12 @@ impl ReaderSession {
                     block_source(block).is_some_and(|range| source_range_contains(range, anchor))
                 })
             })
-            .unwrap_or(0);
+            .ok_or_else(|| ReaderError::NavigationTargetNotFound(anchor.node.clone()))?;
         let segment_index = section
             .segments
             .iter()
             .position(|segment| segment.fragment_range.contains(&fragment_index))
-            .unwrap_or(0);
+            .ok_or_else(|| ReaderError::NavigationTargetNotFound(anchor.node.clone()))?;
         let key = SegmentKey {
             section_index,
             segment_index,
@@ -2271,7 +2271,7 @@ impl ReaderSession {
                     .iter()
                     .position(|page| page.contains_source_anchor(anchor))
             })
-            .unwrap_or(0);
+            .ok_or_else(|| ReaderError::NavigationTargetNotFound(anchor.node.clone()))?;
         Ok(ReaderPosition {
             section_index,
             segment_index,
