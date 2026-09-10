@@ -262,4 +262,17 @@ mod tests {
         };
         assert!(image.href.path().ends_with("page-00001.jpg"));
     }
+
+    #[test]
+    fn rejects_extreme_compression_ratio_before_decoding_images() {
+        let mut archive = ZipWriter::new(Cursor::new(Vec::new()));
+        let options = SimpleFileOptions::default().compression_method(CompressionMethod::Deflated);
+        archive.start_file("page.png", options).unwrap();
+        archive.write_all(&vec![0_u8; 1024 * 1024]).unwrap();
+        let bytes = archive.finish().unwrap().into_inner();
+
+        let result = open(&bytes, "adversarial.cbz");
+
+        assert!(matches!(result, Err(error) if error.to_string().contains("compression ratio")));
+    }
 }

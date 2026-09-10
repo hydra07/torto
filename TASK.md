@@ -189,7 +189,9 @@ These items describe code that existed when this roadmap was created. They are n
 - [~] P1-029 Audit PDF and comic page dimension arithmetic for overflow.
     - Partial evidence: PDF now rejects non-finite/non-positive page dimensions before scale arithmetic and clamps raster output; CBZ bounds archive/resource bytes, and layout rejects oversized decoded dimensions. Dedicated PDF/CBZ adversarial dimension fixtures remain open.
     - Validation: `cargo test -p rebook-formats --locked` — 39 passed, 1 ignored.
-- [ ] P1-030 Add malformed/adversarial fixtures that are safe to commit.
+- [~] P1-030 Add malformed/adversarial fixtures that are safe to commit.
+    - Partial evidence: HTML size/depth rejection tests and a bounded CBZ compression-ratio fixture are committed; broader malformed EPUB/PDF/image fixture coverage remains open.
+    - Validation: `cargo test -p rebook-html --locked` — 61 passed; `cargo test -p rebook-formats --locked` — 40 passed, 1 ignored.
 - [ ] P1-031 Add fuzz/property targets for the highest-risk parser and URL/anchor boundaries.
 - [x] P1-032 Reject stale source anchors instead of silently restoring to section/page zero.
     - Evidence: `ReaderSession::position_for_source_anchor` now returns `NavigationTargetNotFound` when no source fragment, segment, or page contains the anchor; `stale_source_anchor_is_rejected_without_moving_reader` covers state preservation.
