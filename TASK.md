@@ -152,11 +152,13 @@ These items describe code that existed when this roadmap was created. They are n
 
 ## Locator durability
 
-- [ ] P1-016 Define and document the locator restoration priority chain.
+- [x] P1-016 Define and document the locator restoration priority chain.
+    - Evidence: `docs/ARCHITECTURE.md` defines exact source, structural, unique quote, href progression, total progression, and failure order.
 - [x] P1-017 Populate `LocatorV1::text` for current reading locators with bounded before/highlight/after context.
     - Evidence: `ReaderSession::current_locator` now derives a quote from the first visible source-backed text region in `crates/reader/src/session.rs`; bounds are 64/128/64 Unicode scalars in `crates/reader/src/model.rs`.
     - Validation: `cargo test -p rebook-reader --locked` — 60 passed; `cargo check -p rebook-engine --locked` — passed.
-- [ ] P1-018 Evaluate whether a structural locator such as partial CFI can be produced reliably; implement or explicitly defer with evidence.
+- [x] P1-018 Evaluate whether a structural locator such as partial CFI can be produced reliably; implement or explicitly defer with evidence.
+    - Evidence: parser node IDs are synthetic and no CFI producer/validator exists; `LocatorV1::partial_cfi` remains storage-only and CFI generation is explicitly deferred in `docs/ARCHITECTURE.md`.
 - [x] P1-019 Implement bounded text-quote recovery scoped to the locator href.
     - Evidence: `ReaderSession::restore_locator` searches source-backed text regions across the href's prepared segments, accepts one visible match, and falls back when the quote is absent or ambiguous.
     - Validation: `locator_quote_recovers_after_source_node_changes` covers Unicode text and page-spanning quotes; `cargo test -p rebook-reader --locked` — 60 passed.

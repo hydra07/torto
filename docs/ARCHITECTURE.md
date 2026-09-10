@@ -120,6 +120,19 @@ Concrete gaps, without redesigning it:
 
 Current mapping is: source element → `ReadingIrParser::source_range` → `TextBlock`/image/table/quote ranges → `TextPlacement.source` and retained text → `ShapedTextRegion` → `PageTextHit`/`PageSelectionFragment` → `ReaderTextHit`/`ReaderSelectionRect`. `PageDisplayList::{text_region_source_range,text_region_byte_range_for_source,source_rects}` provides both directions between retained text/page geometry and durable ranges. The chain supports page → shaped cluster/text → source range → parser node/spine, but block/section/chapter context must still be resolved by scanning IR and TOC rather than returned as one deep-context object.
 
+### Locator recovery contract
+
+`ReaderSession::restore_locator` follows this recovery order and never treats a layout page number as durable identity:
+
+1. exact `SourceRange::start` resolution in the current publication;
+2. a structural locator only when a future producer can validate it against the same source identity;
+3. one unique bounded `TextQuote` match within the locator href's prepared content;
+4. href plus section progression;
+5. total publication progression;
+6. an explicit navigation failure when no safe destination remains.
+
+Quote recovery rejects ambiguous matches and uses the match's visible start position, so a quote may cross a page boundary without selecting an arbitrary page. `LocatorV1::partial_cfi` is currently storage-only: parser node identities are synthetic and the engine has no standardized CFI producer or validator, so CFI generation is explicitly deferred rather than simulated.
+
 ## 6. Formats and Parsing
 
 `BookFormat` supports EPUB, MOBI, AZW, AZW3, FB2, FBZ, CBZ, CHM, and PDF (`crates/formats/src/lib.rs`). `open_file`, `open_file_for_reading`, and `open_bytes` normalize them behind `OpenedPublication` and `Arc<dyn BookSource>`.
