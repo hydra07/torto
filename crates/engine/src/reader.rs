@@ -1,5 +1,5 @@
 use rebook_layout::{LayoutViewport, ReaderStyle};
-use rebook_publication::{Book, LocatorV1};
+use rebook_publication::{Book, LocatorV1, PublicationUrl, SourceAnchor};
 use rebook_reader::{
     NavigationAttempt, NavigationOutcome, NavigationPreparation, NavigationResult, NavigationToken,
     PageDirection, PreparedNavigation, ReaderError, ReaderPosition, ReaderSelection, ReaderSession,
@@ -118,6 +118,20 @@ impl EngineReader {
             .and_then(|item| item.target.clone())
             .ok_or_else(|| ReaderError::NavigationTargetNotFound(id.to_owned()))?;
         self.session.go_to_href(&target)
+    }
+
+    /// Navigates an internal publication href and optional fragment.
+    pub fn go_to_href(&mut self, href: &PublicationUrl) -> Result<NavigationResult, ReaderError> {
+        self.cancel_pending_navigation();
+        self.clear_text_selection();
+        self.session.go_to_href(href)
+    }
+
+    /// Navigates to a source-backed anchor after resolving it under the current layout.
+    pub fn go_to_source(&mut self, anchor: &SourceAnchor) -> Result<NavigationResult, ReaderError> {
+        self.cancel_pending_navigation();
+        self.clear_text_selection();
+        self.session.go_to_source(anchor)
     }
 
     pub fn prefetch_adjacent(&mut self) -> Result<(), ReaderError> {

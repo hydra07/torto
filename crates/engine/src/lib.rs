@@ -219,6 +219,33 @@ mod tests {
     }
 
     #[test]
+    fn facade_exposes_internal_href_and_source_navigation() {
+        let source: Arc<dyn BookSource> = Arc::new(InMemorySource::new());
+        let session = ReaderSession::open_with_fonts(
+            source,
+            LayoutViewport {
+                width: 800,
+                height: 1000,
+            },
+            ReaderStyle::default(),
+            Arc::default(),
+        )
+        .unwrap();
+        let mut reader = EngineReader::new(session);
+
+        let href = PublicationUrl::parse("chapter1.xhtml#missing").unwrap();
+        assert!(reader.go_to_href(&href).is_ok());
+        let anchor = SourceAnchor {
+            spine: SpineItemId::new("chapter1").unwrap(),
+            node: "missing-node".into(),
+            text_offset: 0,
+        };
+        assert!(matches!(
+            reader.go_to_source(&anchor),
+            Err(ReaderError::NavigationTargetNotFound(_))
+        ));
+    }
+    #[test]
     fn test_book_source_and_reader_lifetime() {
         let source = Arc::new(InMemorySource::new());
         let weak_source = Arc::downgrade(&source);

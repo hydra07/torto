@@ -1,12 +1,12 @@
 use std::sync::Arc;
 
-use rebook_publication::PublicationId;
+use rebook_publication::{PublicationId, PublicationUrl, SourceAnchor};
 
 use crate::{
     AppLifecycleEvent, Engine, EngineAnimationState, EngineBook, EngineConfig, EngineError,
-    EngineNavigationState, EngineReader, MemoryPressure, OpenReaderRequest, PageDirection,
-    PointerEvent, PointerGestureResult, PreparedReaderFrame, ReaderSelection, ReaderSnapshot,
-    ReaderStyle, SourceRange, TickResult, TocViewItem, ViewportMetrics,
+    EngineNavigationState, EngineReader, MemoryPressure, NavigationResult, OpenReaderRequest,
+    PageDirection, PointerEvent, PointerGestureResult, PreparedReaderFrame, ReaderSelection,
+    ReaderSnapshot, ReaderStyle, SourceRange, TickResult, TocViewItem, ViewportMetrics,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -115,9 +115,23 @@ impl EngineRuntime {
         Ok(self.require_reader()?.current_locator())
     }
 
-    pub fn restore_locator(&mut self, locator: &crate::LocatorV1) -> Result<(), EngineError> {
-        self.require_reader_mut()?.restore_locator(locator)?;
-        Ok(())
+    pub fn restore_locator(
+        &mut self,
+        locator: &crate::LocatorV1,
+    ) -> Result<NavigationResult, EngineError> {
+        Ok(self.require_reader_mut()?.restore_locator(locator)?)
+    }
+
+    pub fn go_to_toc_item(&mut self, id: &str) -> Result<NavigationResult, EngineError> {
+        Ok(self.require_reader_mut()?.go_to_toc_item(id)?)
+    }
+
+    pub fn go_to_href(&mut self, href: &PublicationUrl) -> Result<NavigationResult, EngineError> {
+        Ok(self.require_reader_mut()?.go_to_href(href)?)
+    }
+
+    pub fn go_to_source(&mut self, anchor: &SourceAnchor) -> Result<NavigationResult, EngineError> {
+        Ok(self.require_reader_mut()?.go_to_source(anchor)?)
     }
 
     pub fn toc(&self) -> Result<&[TocViewItem], EngineError> {

@@ -270,15 +270,26 @@ These items describe code that existed when this roadmap was created. They are n
 
 ## Navigation primitives
 
-- [ ] P2-014 Verify prepare never changes committed locator or snapshot.
-- [ ] P2-015 Verify cancel preserves committed state.
-- [ ] P2-016 Verify commit moves exactly once.
-- [ ] P2-017 Verify stale and double-used navigation tokens cannot commit.
-- [ ] P2-018 Verify resize/style/source changes invalidate prepared navigation.
-- [ ] P2-019 Verify current and destination spreads stay simultaneously available during preparation.
-- [ ] P2-020 Add engine navigation commands for locator, TOC item, href/fragment, and source anchor.
-- [ ] P2-021 Ensure navigation command results report moved, pending, boundary, approximate restore, and error states consistently.
-- [ ] P2-022 Expose sufficient primitives for platform-owned History/Back/Peek without storing the history stack in engine.
+- [x] P2-014 Verify prepare never changes committed locator or snapshot.
+    - Evidence: `prepared_navigation_leaves_state_unchanged_and_commits_cleanly` compares position, locator, and snapshot before/after preparation.
+    - Validation: `cargo test -p rebook-reader --locked` — 63 passed.
+- [x] P2-015 Verify cancel preserves committed state.
+    - Evidence: the prepared-navigation test cancels a ready token and verifies position/locator remain unchanged.
+- [x] P2-016 Verify commit moves exactly once.
+    - Evidence: the prepared-navigation test commits once, verifies the destination, and rejects reuse after cancellation; navigation scheduler tests cover the ready-over-ticks path.
+- [x] P2-017 Verify stale and double-used navigation tokens cannot commit.
+    - Evidence: `navigation_tokens_are_invalidated_by_resize_and_style` and prepared-navigation tests reject stale poll/commit/cancel operations.
+- [x] P2-018 Verify resize/style/source changes invalidate prepared navigation.
+    - Evidence: resize/style token invalidation tests and the invalidation matrix cover generation changes; source refresh rebuilds repository/navigation state.
+- [x] P2-019 Verify current and destination spreads stay simultaneously available during preparation.
+    - Evidence: prepared navigation exposes source/destination positions without changing the current snapshot; frame tests cover destination spread state during interactive transitions.
+- [x] P2-020 Add engine navigation commands for locator, TOC item, href/fragment, and source anchor.
+    - Evidence: `EngineReader` and `EngineRuntime` expose locator, TOC, `go_to_href`, and `go_to_source` commands; `facade_exposes_internal_href_and_source_navigation` covers the facade routing and typed stale-anchor failure.
+    - Validation: `cargo test -p rebook-engine --locked` — 15 passed.
+- [~] P2-021 Ensure navigation command results report moved, pending, boundary, approximate restore, and error states consistently.
+    - Partial evidence: `EngineReader`/`EngineRuntime` now return navigation outcomes for locator, TOC, href, and source commands; `EngineNavigationState` reports pending/moved/boundary and typed errors propagate. Approximate locator recovery quality remains open under P1-020.
+- [x] P2-022 Expose sufficient primitives for platform-owned History/Back/Peek without storing the history stack in engine.
+    - Evidence: runtime exposes locators, snapshots, semantic navigation commands, and explicit outcomes while `docs/ENGINE_RUNTIME_API.md` assigns navigation history/Back policy to platforms.
 
 ## Hit testing and selection
 
