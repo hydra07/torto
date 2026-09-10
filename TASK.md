@@ -104,7 +104,7 @@ These items describe code that existed when this roadmap was created. They are n
     - Decision: these are platform persistence/product entities and do not belong in the engine API; the engine retains `LocatorV1`, `SourceRange`, `SearchResult`, and overlay ranges.
 - [x] P0-014 Replace product-shaped annotation entities with persistence-neutral overlay/source primitives if P0-013 removes them.
     - Evidence: removed unused persistent entities from `crates/engine/src/features.rs` and their exports from `crates/engine/src/lib.rs`; existing `OverlaySet` and `SourceRange` remain available.
-    - Validation: `cargo check -p rebook-engine --locked`, `cargo test -p rebook-engine --locked` — 14 passed.
+    - Validation: `cargo check -p rebook-engine --locked`, `cargo test -p rebook-engine --locked` — 15 passed.
 - [x] P0-015 Mark transition and Curl APIs as stable or experimental explicitly.
     - Evidence: `crates/engine/src/transition.rs` and `FrameTransition` rustdoc mark transition APIs/Curl as experimental; `docs/ARCHITECTURE.md` classifies Curl3D as optional backend infrastructure outside the Engine v1 critical path. Existing Curl3D WIP files were not modified.
 - [x] P0-016 Define a deprecation policy for accidental public exports before removing them.
@@ -151,7 +151,7 @@ These items describe code that existed when this roadmap was created. They are n
     - Validation: `cargo test -p rebook-publication --locked` — 10 passed.
 - [x] P1-007 Audit internal links, missing targets, footnotes/endnotes, and cross-section anchors.
     - Evidence: HTML and EPUB tests cover canonical internal hrefs, missing-target failure behavior, footnote/endnote roles, and authored fragment anchors; reader tests cover cross-section locator fallback.
-    - Validation: `cargo test -p rebook-html --locked` — 64 passed; `cargo test -p rebook-formats --locked` — 41 passed, 1 ignored; `cargo test -p rebook-reader --locked` — 63 passed.
+    - Validation: `cargo test -p rebook-html --locked` — 64 passed; `cargo test -p rebook-formats --locked` — 42 passed, 1 ignored; `cargo test -p rebook-reader --locked` — 63 passed.
 - [x] P1-008 Audit resource identity for images, fonts, SVG, math, PDF pages, and comic pages.
     - Evidence: resources use canonical publication URLs; CBZ and PDF generated paths are deterministic, while image/font/SVG/math resources remain source hrefs resolved through the same URL boundary. Findings are recorded in `docs/ARCHITECTURE.md`.
 - [x] P1-009 Document fixed-layout versus reflowable capability representation.
@@ -178,16 +178,16 @@ These items describe code that existed when this roadmap was created. They are n
     - Evidence: `docs/ARCHITECTURE.md` defines exact source, structural, unique quote, href progression, total progression, and failure order.
 - [x] P1-017 Populate `LocatorV1::text` for current reading locators with bounded before/highlight/after context.
     - Evidence: `ReaderSession::current_locator` now derives a quote from the first visible source-backed text region in `crates/reader/src/session.rs`; bounds are 64/128/64 Unicode scalars in `crates/reader/src/model.rs`.
-    - Validation: `cargo test -p rebook-reader --locked` — 62 passed; `cargo check -p rebook-engine --locked` — passed.
+    - Validation: `cargo test -p rebook-reader --locked` — 63 passed; `cargo check -p rebook-engine --locked` — passed.
 - [x] P1-018 Evaluate whether a structural locator such as partial CFI can be produced reliably; implement or explicitly defer with evidence.
     - Evidence: parser node IDs are synthetic and no CFI producer/validator exists; `LocatorV1::partial_cfi` remains storage-only and CFI generation is explicitly deferred in `docs/ARCHITECTURE.md`.
 - [x] P1-019 Implement bounded text-quote recovery scoped to the locator href.
     - Evidence: `ReaderSession::restore_locator` searches source-backed text regions across the href's prepared segments, accepts one visible match, and falls back when the quote is absent or ambiguous.
-    - Validation: `locator_quote_recovers_after_source_node_changes` covers Unicode text and page-spanning quotes; `cargo test -p rebook-reader --locked` — 62 passed.
+    - Validation: `locator_quote_recovers_after_source_node_changes` covers Unicode text and page-spanning quotes; `cargo test -p rebook-reader --locked` — 63 passed.
 - [ ] P1-020 Return a structured recovery quality: exact, structural, quote match, href fallback, total fallback, or failure.
 - [x] P1-021 Add locator schema/version migration tests.
     - Evidence: publication tests now reject unsupported `LocatorV1` versions and verify `LocatorV1::at_start` defaults for optional recovery fields.
-    - Validation: `cargo test -p rebook-publication --locked` — 9 passed.
+    - Validation: `cargo test -p rebook-publication --locked` — 10 passed.
 - [x] P1-022 Add tests for parser-node identity changes while text remains equivalent.
     - Evidence: `locator_quote_recovers_after_source_node_changes` changes the source node identity while preserving the text and verifies recovery at the relocated content.
 - [x] P1-023 Add tests for missing href and moved section fallback.
@@ -202,25 +202,25 @@ These items describe code that existed when this roadmap was created. They are n
 
 - [x] P1-026 Audit archive entry count, decompression ratio, total expanded size, and path traversal limits.
     - Evidence: EPUB and CHM already enforce archive/entry/expanded-size budgets and path validation; CBZ now enforces archive bytes, entry count, per-entry bytes, total expanded bytes, and compression-ratio limits. CBZ materializes generated resource paths rather than extracting archive names.
-    - Validation: `cargo test -p rebook-formats --locked` — 39 passed, 1 ignored.
+    - Validation: `cargo test -p rebook-formats --locked` — 42 passed, 1 ignored.
 - [~] P1-027 Audit XML/HTML recursion, entity, and allocation limits.
     - Partial evidence: EPUB XML sanitization enforces 128-level depth and rejects unsafe internal subsets; `rebook-html` now rejects sections over 64 MiB, over 1,000,000 DOM nodes, or over 256 ancestor levels. Direct HTML accepts predefined/numeric XML references and rejects undeclared entities; format-wide allocation coverage remains open.
-    - Validation: `cargo test -p rebook-html --locked` — 63 passed.
+    - Validation: `cargo test -p rebook-html --locked` — 64 passed.
 - [x] P1-028 Audit image dimension and decoded-byte limits before allocation.
     - Evidence: `rebook-layout` now validates image dimensions before decode and bounds both decoded raster bytes and source bytes at 32M pixels/128MiB; source-provided rasters receive the same guard.
     - Validation: `cargo test -p rebook-layout --locked` — 102 passed.
 - [~] P1-029 Audit PDF and comic page dimension arithmetic for overflow.
     - Partial evidence: PDF now rejects non-finite/non-positive page dimensions before scale arithmetic and clamps raster output; direct adversarial coverage exercises zero, negative, NaN, and infinite dimensions. CBZ bounds archive/resource bytes, and layout rejects oversized decoded dimensions; a dedicated CBZ metadata fixture remains open.
-    - Validation: `cargo test -p rebook-formats --locked` — 41 passed, 1 ignored.
+    - Validation: `cargo test -p rebook-formats --locked` — 42 passed, 1 ignored.
 - [~] P1-030 Add malformed/adversarial fixtures that are safe to commit.
-    - Partial evidence: HTML size/depth rejection tests and a bounded CBZ compression-ratio fixture are committed; broader malformed EPUB/PDF/image fixture coverage remains open.
-    - Validation: `cargo test -p rebook-html --locked` — 63 passed; `cargo test -p rebook-formats --locked` — 41 passed, 1 ignored.
+    - Partial evidence: HTML size/depth/entity rejection tests and a bounded CBZ compression-ratio fixture are committed; broader malformed EPUB/PDF/image fixture coverage remains open.
+    - Validation: `cargo test -p rebook-html --locked` — 64 passed; `cargo test -p rebook-formats --locked` — 42 passed, 1 ignored.
 - [~] P1-031 Add fuzz/property targets for the highest-risk parser and URL/anchor boundaries.
     - Partial evidence: `publication_url_boundary_matrix_preserves_canonical_invariants` exercises relative paths, fragments, encoded traversal, invalid escapes, NULs, backslashes, and external schemes without adding a fuzzing dependency; parser fuzz targets and broader anchor generation remain open.
     - Validation: `cargo test -p rebook-publication --locked` — 10 passed.
 - [x] P1-032 Reject stale source anchors instead of silently restoring to section/page zero.
     - Evidence: `ReaderSession::position_for_source_anchor` now returns `NavigationTargetNotFound` when no source fragment, segment, or page contains the anchor; `stale_source_anchor_is_rejected_without_moving_reader` covers state preservation.
-    - Validation: `cargo test -p rebook-reader --locked` — 62 passed; `cargo test -p rebook-engine --locked` — 14 passed.
+    - Validation: `cargo test -p rebook-reader --locked` — 63 passed; `cargo test -p rebook-engine --locked` — 15 passed.
 
 ## Phase gate
 
@@ -252,7 +252,7 @@ These items describe code that existed when this roadmap was created. They are n
     - Evidence: `docs/ENGINE_RUNTIME_API.md` defines generation, semantic-position, cache, and interaction effects for each change class.
 - [x] P2-007 Verify physical-size/DPR-only changes do not trigger logical reflow.
     - Evidence: `EngineRuntime::resize` and `physical_resize_does_not_reflow_logical_layout` keep logical viewport/layout unchanged while updating physical surface dimensions.
-    - Validation: `cargo test -p rebook-engine --locked` — 14 passed.
+    - Validation: `cargo test -p rebook-engine --locked` — 15 passed.
 - [x] P2-008 Verify logical viewport changes preserve semantic location.
     - Evidence: `resize_rebuilds_layout_and_preserves_approximate_progress` and locator reflow tests cover logical viewport changes with source/progression restoration.
     - Validation: `cargo test -p rebook-reader --locked` — 63 passed.
