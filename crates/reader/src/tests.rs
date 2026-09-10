@@ -963,6 +963,11 @@
             .unwrap();
         let locator = first.current_locator();
         let source_anchor = locator.source.as_ref().unwrap().start.clone();
+        let quote = locator.text.as_ref().expect("text locator quote");
+        assert!(!quote.highlight.is_empty());
+        assert!(quote.before.chars().count() <= LOCATOR_QUOTE_BEFORE_CHARS);
+        assert!(quote.highlight.chars().count() <= LOCATOR_QUOTE_HIGHLIGHT_CHARS);
+        assert!(quote.after.chars().count() <= LOCATOR_QUOTE_AFTER_CHARS);
 
         let mut restored =
             ReaderSession::open(source, viewport(820, 620), ReaderStyle::default()).unwrap();

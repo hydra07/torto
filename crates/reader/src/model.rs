@@ -1,5 +1,4 @@
 /// Reader session with section, layout, and display-list caches.
-
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::ops::Range;
 #[cfg(not(target_arch = "wasm32"))]
@@ -18,8 +17,8 @@ use rebook_layout::{
 };
 use rebook_publication::{
     Block, Book, BookSource, Inline, LocatorV1, PublicationError, PublicationUrl, RenditionLayout,
-    Section, SectionAnchor, SourceAnchor, SourceRange, TableOfContentsOrigin, TextBlock, TextRun,
-    TocEntry,
+    Section, SectionAnchor, SourceAnchor, SourceRange, TableOfContentsOrigin, TextBlock, TextQuote,
+    TextRun, TocEntry,
 };
 use rebook_renderer::{DisplayListCompiler, PageDisplayList, PageImageHit, PageTextHit};
 use thiserror::Error;
@@ -30,6 +29,9 @@ const DEFAULT_SEGMENT_CACHE_CAPACITY: usize = PREFETCH_DISTANCE * 2 + 3;
 const FRAGMENT_TEXT_BUDGET: usize = 4_096;
 const LARGE_SECTION_TEXT_BUDGET: usize = FRAGMENT_TEXT_BUDGET * 8;
 const FRAGMENT_BLOCK_BUDGET: usize = 64;
+const LOCATOR_QUOTE_BEFORE_CHARS: usize = 64;
+const LOCATOR_QUOTE_HIGHLIGHT_CHARS: usize = 128;
+const LOCATOR_QUOTE_AFTER_CHARS: usize = 64;
 
 /// Direction requested by keyboard, pointer, or command navigation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

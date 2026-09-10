@@ -270,6 +270,7 @@ impl ReaderSession {
         };
         let progression = (location.segment_index as f64 + page_progression) / segment_count as f64;
         let section = &self.source.book().sections[location.section_index];
+        let (source, text) = locator_text_context(self.current_page());
         LocatorV1 {
             version: LocatorV1::VERSION,
             publication_id: self.source.book().id.clone(),
@@ -277,9 +278,9 @@ impl ReaderSession {
             progression: Some(progression.clamp(0.0, 1.0)),
             total_progression: Some(self.snapshot().total_progression),
             position: None,
-            source: self.current_page().leading_source_range(),
+            source,
             partial_cfi: None,
-            text: None,
+            text,
         }
     }
 
@@ -3195,6 +3196,53 @@ fn block_source(block: &Block) -> Option<&SourceRange> {
     }
 }
 
+fn locator_text_context(page: &PageDisplayList) -> (Option<SourceRange>, Option<TextQuote>) {
+    for region_index in 0..page.text_region_count() {
+        let Some(visible) = page.text_region_visible_range(region_index) else {
+            continue;
+        };
+        let Some(text) = page.text_region_text(region_index) else {
+            continue;
+        };
+        let start = visible.start.min(text.len());
+        let end = visible.end.min(text.len());
+        if start >= end || !text.is_char_boundary(start) || !text.is_char_boundary(end) {
+            continue;
+        }
+        let highlight_end = char_boundary_after(text, start, LOCATOR_QUOTE_HIGHLIGHT_CHARS);
+        if highlight_end <= start {
+            continue;
+        }
+        let Some(source) = page.text_region_source_range(region_index, start..highlight_end) else {
+            continue;
+        };
+        let before_start = char_boundary_before(text, start, LOCATOR_QUOTE_BEFORE_CHARS);
+        let after_end = char_boundary_after(text, highlight_end, LOCATOR_QUOTE_AFTER_CHARS);
+        let quote = TextQuote {
+            before: text[before_start..start].to_owned(),
+            highlight: text[start..highlight_end].to_owned(),
+            after: text[highlight_end..after_end].to_owned(),
+        };
+        return (Some(source), Some(quote));
+    }
+    (page.leading_source_range(), None)
+}
+
+fn char_boundary_before(text: &str, end: usize, count: usize) -> usize {
+    text[..end]
+        .char_indices()
+        .rev()
+        .nth(count.saturating_sub(1))
+        .map_or(0, |(index, _)| index)
+}
+
+fn char_boundary_after(text: &str, start: usize, count: usize) -> usize {
+    text[start..]
+        .char_indices()
+        .nth(count)
+        .map_or(text.len(), |(index, _)| start + index)
+}
+
 fn source_range_contains(range: &SourceRange, anchor: &SourceAnchor) -> bool {
     if range.start.spine != anchor.spine || range.start.node != anchor.node {
         return false;
@@ -3889,4 +3937,3 @@ pub enum ReaderError {
     #[error("navigation token is stale or invalid")]
     StaleNavigationToken,
 }
-

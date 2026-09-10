@@ -153,7 +153,9 @@ These items describe code that existed when this roadmap was created. They are n
 ## Locator durability
 
 - [ ] P1-016 Define and document the locator restoration priority chain.
-- [ ] P1-017 Populate `LocatorV1::text` for current reading locators with bounded before/highlight/after context.
+- [x] P1-017 Populate `LocatorV1::text` for current reading locators with bounded before/highlight/after context.
+    - Evidence: `ReaderSession::current_locator` now derives a quote from the first visible source-backed text region in `crates/reader/src/session.rs`; bounds are 64/128/64 Unicode scalars in `crates/reader/src/model.rs`.
+    - Validation: `cargo test -p rebook-reader --locked` — 56 passed; `cargo check -p rebook-engine --locked` — passed.
 - [ ] P1-018 Evaluate whether a structural locator such as partial CFI can be produced reliably; implement or explicitly defer with evidence.
 - [ ] P1-019 Implement nearby text-quote recovery scoped by publication, href, and approximate progression.
 - [ ] P1-020 Return a structured recovery quality: exact, structural, quote match, href fallback, total fallback, or failure.
@@ -161,7 +163,8 @@ These items describe code that existed when this roadmap was created. They are n
 - [ ] P1-022 Add tests for parser-node identity changes while text remains equivalent.
 - [ ] P1-023 Add tests for missing href and moved section fallback.
 - [ ] P1-024 Add tests ensuring ambiguous text quotes do not silently choose unrelated content.
-- [ ] P1-025 Add tests for locator round-trip across viewport, font, margin, spacing, and spread changes.
+- [~] P1-025 Add tests for locator round-trip across viewport, font, margin, spacing, and spread changes.
+    - Partial evidence: existing `durable_locator_restores_after_viewport_repagination` now asserts bounded quote production and source restoration across viewport changes. Font/margin/spacing/spread matrix remains open.
 
 ## Untrusted content and limits
 
